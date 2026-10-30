@@ -1,0 +1,60 @@
+name: macos-build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'macos/**'
+      - '.github/workflows/macos.yml'
+
+jobs:
+  build:
+    name: 编译并打包 .app
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          sw_vers
+          swift --version
+          xcodebuild -version
+
+      - name: 编译
+        working-directory: macos
+        run: |
+          set -euo pipefail
+          swift build -c release
+          BIN_PATH=$(swift build -c release --show-bin-path)
+          echo "BIN_PATH=$BIN_PATH" >> "$GITHUB_ENV"
+          ls -lh "$BIN_PATH/TokenPanel"
+
+      - name: 组装 TokenPanel.app
+        working-directory: macos
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/TokenPanel.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/wb"
+
+          cp "$BIN_PATH/TokenPanel" "$APP/Contents/MacOS/TokenPanel"
+          chmod +x "$APP/Contents/MacOS/TokenPanel"
+          cp Resources/Info.plist "$APP/Contents/Info.plist"
+
+          # WorkBuddy 查询脚本随包分发（与 Windows 版共用同一份 Node 实现）
+          cp ../lib/wb/wb_query.js ../lib/wb/grab_cookie.js "$APP/Contents/Resources/wb/"
+
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --verbose "$APP"
+
+          /usr/bin/ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/TokenPanel-macos.zip"
+          ls -lh "$RUNNER_TEMP/TokenPanel-macos.zip"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokenPanel-macOS
+          path: ${{ runner.temp }}/TokenPanel-macos.zip
+          if-no-files-found: error
+          retention-days: 90
