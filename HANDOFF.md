@@ -1036,27 +1036,50 @@ v1.1.0 已用 `$script:UserMoving` 挡住程序自身位移，但如果你改了
 所以不能用「发布为在线链接」那套（那是给静态站点/小游戏用的，对方点了链接也跑不起来桌面程序）。
 对外分发只有两条路：**压缩包**（首发推荐）或**安装包**（Inno Setup / NSIS / WinRAR SFX）。
 
-### 当前发布物
+### 当前发布物（v1.1.6）
 
 ```
 release/
-├─ TokenPocket-1.1.2.zip      ← 直接发这个（约 190 KB）
-└─ TokenPocket-1.1.2/         ← zip 的源目录，改完重新打包
-   ├─ start-token-pocket.cmd       双击启动（无窗口后台运行）
-   ├─ debug-token-pocket.cmd       调试启动器，留窗口显示报错
+├─ TokenPocket-1.1.6.zip      ← 直接发这个（约 193 KB）
+└─ TokenPocket-1.1.6/         ← zip 的源目录，改完重新打包
+   ├─ TokenPocket.vbs             ★ 推荐入口，双击启动、零黑窗
+   ├─ 创建快捷方式.cmd            ★ 生成 Token Pocket.lnk（一次性）
+   ├─ start-token-pocket.cmd      兼容入口，转调 VBS
+   ├─ debug-token-pocket.cmd      调试启动器，留窗口显示报错
+   ├─ make-shortcut.ps1           由「创建快捷方式.cmd」调用
    ├─ TokenPanel.ps1
    ├─ lib/QuotaCore.ps1
    ├─ lib/ConfigWindow.ps1
    ├─ 使用说明.md
-   └─ 截图/（7 张）
+   └─ 截图/（6 张）
 ```
 
-### 重新打包的命令
+**不要打包 `.lnk`**：里面存的是开发机的绝对路径，到别人电脑上直接失效。
+包里放 `创建快捷方式.cmd`，让对方在自己机器上生成。
 
-```bash
-cd "D:\AppData\token消耗面板\release"
-"C:\Program Files\WinRAR\WinRAR.exe" a -afzip -r -inul "TokenPocket-1.1.2.zip" "TokenPocket-1.1.2"
+### 重新打包（三步）
+
+```powershell
+# 1) 同步源码到包目录（保持 md5 一致，别手改包里的副本）
+cd "D:\AppData\token消耗面板"
+$R = "release\TokenPocket-1.1.6"
+Copy-Item TokenPanel.ps1 $R -Force
+Copy-Item lib\QuotaCore.ps1,lib\ConfigWindow.ps1 "$R\lib" -Force
+Copy-Item TokenPocket.vbs,start-token-pocket.cmd,debug-token-pocket.cmd,make-shortcut.ps1 $R -Force
+Copy-Item shot-dock.png,shot-dock-v.png,shot-dock-light.png,shot-panel.png,shot-config.png,shot-cfg-system.png "$R\截图" -Force
+
+# 2) 打包（用系统自带 cmdlet，不依赖 WinRAR）
+Compress-Archive -Path $R -DestinationPath "release\TokenPocket-1.1.6.zip" -Force
+
+# 3) 冒烟测试（必做，见下）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1
 ```
+
+**`smoke-release.ps1` 会做 19 项检查**：解压到全新临时目录 → 校验文件清单 →
+确认不含 `config.json` → 从新目录启动 → 验证进程/窗口/置顶（`WS_EX_TOPMOST`）→
+校验日志版本号 → 生成 `.lnk` 并确认指向新目录 → 清理。
+
+为什么要从**全新目录**启动：能一并验证 `.vbs` 的路径解析是相对的、不依赖开发机路径。
 
 **打包前必做**（踩过的坑）：
 1. **永远不要把 `%APPDATA%\TokenPocket\config.json` 放进包**。里面是 DPAPI 加密的 API Key，
@@ -1077,13 +1100,16 @@ cd "D:\AppData\token消耗面板\release"
 | 不需要管理员权限 | 自启写 `HKCU\...\Run`，配置写 `%APPDATA%` | ✅ |
 | 多 DPI / 多显示器 | `-GeomTest` + 拖动重算 | ✅ 100/125/150% 都试过 |
 | 字体 | 只用 Windows 自带三款，不打包字体文件 | ✅ 见 §13 |
-| 你的配置没被污染 | `-TestUI` 保存前会把缩放/浮窗/配色点回原值 | ✅ 18/18 |
+| 你的配置没被污染 | `-TestUI` 保存前会把缩放/浮窗/配色点回原值 | ✅ 24/24 |
+| 发布包能独立运行 | `smoke-release.ps1` 解压到全新目录再启动 | ✅ 19/19 |
+| 启动无黑窗 | 枚举窗口判 `ConsoleWindowClass` 可见性 | ✅ `visibleConsole=0` |
+| 悬浮窗置顶 | 读 `GWL_EXSTYLE` 判 `WS_EX_TOPMOST` | ✅ `0x00090008` |
 
 ### 三条分发路线
 
 | 方式 | 做法 | 适合 | 注意 |
 |---|---|---|---|
-| **ZIP（现在这个）** | 微信/邮件/网盘发 `TokenPocket-1.1.2.zip` | 首发、小范围（你的分享会那 5 个人） | 没有开始菜单项，用户自己建快捷方式 |
+| **ZIP（现在这个）** | 微信/邮件/网盘发 `TokenPocket-1.1.6.zip` | 首发、小范围 | 没有开始菜单项，用户自己跑一次「创建快捷方式.cmd」 |
 | **WinRAR SFX 单文件 exe** | `WinRAR a -sfx -z<脚本注释>` ，注释里写 `Setup=` / `Shortcut=` | 想「一个文件搞定」 | 未签名 → SmartScreen 会弹「Windows 已保护你的电脑」，用户要点「更多信息→仍要运行」 |
 | **Inno Setup 安装包** | 写 `.iss`，装 `Inno Setup 6`（免费）后编译 | 正式对外、要卸载入口 | 本机没装 Inno Setup；同样有 SmartScreen 问题 |
 

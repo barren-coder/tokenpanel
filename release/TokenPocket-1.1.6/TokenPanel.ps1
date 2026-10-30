@@ -58,6 +58,15 @@ public class NativeWin {
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     public struct RECT { public int Left, Top, Right, Bottom; }
+
+    // 置顶修复用：直接读写扩展样式。
+    // 踩过的坑：Form.TopMost = $true 在本项目里最终没有落到 WS_EX_TOPMOST 位上
+    // （实测 EXSTYLE=0x00090000，只有 LAYERED|CONTROLPARENT），
+    // 所以点别的窗口就被盖住。改为显式读-改-写样式位 + SetWindowPos 抬到 topmost 带。
+    [DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")]
+    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
 
 // 右键菜单配色（深/浅两套，由 Light 字段切换）
@@ -264,11 +273,31 @@ function Get-LevelColor {
 # ============================================================
 # 尺寸（以下都是「逻辑像素」，绘制时统一经 S() 换算成物理像素）
 # ============================================================
-$DOCK_W = 89          # 单账户单元宽度，多账户按此横向累加
-$DOCK_H = 89
+# 折叠态单元 68×68（用户指定），内部纵向分配：
+#   上边距 7 + 圆环 40 + 环下间距 3 + 标签 11 + 下边距 7 = 68
+# 不是把 89 等比缩 —— 89 时代的 12/52/4/12 塞不进 68，必须重新配平
+$DOCK_W = 68          # 单账户单元宽度，多账户按此横向累加
+$DOCK_H = 68
 $PANEL_W = 340
-$RING_R = 26          # 圆圈半径（直径 52）
-$RING_GAP = 12
+$RING_R = 20          # 圆圈半径（直径 40，比 89 时代的 52 小 23%）
+$DOCK_PAD_TOP = 7     # 环上边距
+$DOCK_RING_GAP = 3    # 环与标签的间距
+$DOCK_LBL_H = 11      # 标签行高
+# 小于这个系数就不画账户名：51px 单元里标签只剩约 6px，糊成一团不如不画（用户确认方案 B）
+$DOCK_LBL_MIN_SCALE = 0.9
+
+# ---- 折叠态排版（v1.1.4，方案 B）----
+# 这些以前散落在 Draw-Ring / Draw-MoneyRing 里写死，抽成常量便于统一调整
+$DOCK_PEN      = 2.0    # 圆环笔宽：用量环与余额环共用（用户要求两者一致）
+$NUM_SIZE      = 15     # 中心数字字号（逻辑像素，绘制时再乘 DS）
+$NUM_SIZE_3    = 11     # 三位数（100%）字号
+$PCT_RATIO     = 0.75   # 百分号字号 = 数字字号 × 该比例
+$PCT_DROP      = 2      # 百分号相对数字的下沉量（视觉上落在右下角）
+$PCT_GAP       = 0.0    # 数字与百分号的间距；0 = 贴齐，负值会挤压（旧版 -2 太挤）
+$DOCK_LBL_SIZE = 8      # 账户名字号
+# 垂直居中修正系数：TextRenderer 的 VerticalCenter 对齐的是「行框」，而数字没有下伸部，
+# 行框下半截的空白把墨迹顶低约 0.075×字号。该系数由 measure-center.ps1 用亮度加权质心标定。
+$CENTER_FIX    = 0.075
 
 # DPI 缩放因子：在窗口句柄创建后赋值（150% 屏 → 1.5）
 $script:Scale = 1.0
@@ -392,7 +421,7 @@ function Draw-Ring {
     param($G, [single]$Cx, [single]$Cy, [int]$Pct, [string]$ColorHex, [string]$Text)
 
     $r = DS $RING_R
-    $penW = DS 4
+    $penW = DS $DOCK_PEN
     $box = [single](($r - $penW / 2) * 2)
     $bx = $Cx - $box / 2
     $by = $Cy - $box / 2
@@ -422,39 +451,43 @@ function Draw-Ring {
         $gl.Dispose()
     }
 
-    # 中心数字 + 小号 %（腾讯管家样式：数字大、百分号小且靠下）
-    $fs = DS 14
-    if ($Text.Length -ge 3) { $fs = DS 11 }
-    $fontNum = New-Object System.Drawing.Font 'Segoe UI', ([single]$fs), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    # 中心数字 + 百分号（方案 B：数字 15 SemiBold，% 放大到 0.75 且间距归零）
+    $fs = DS $NUM_SIZE
+    if ($Text.Length -ge 3) { $fs = DS $NUM_SIZE_3 }
+    $fontNum = New-Object System.Drawing.Font 'Segoe UI Semibold', ([single]$fs), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    # 垂直居中修正：VerticalCenter 对齐行框，数字无下伸部 → 墨迹比圆心低 CENTER_FIX×字号
+    $dyNum = [int][Math]::Round($fs * $CENTER_FIX)
 
     $flagsM = [System.Windows.Forms.TextFormatFlags]::NoPadding
     $flagsC = $flagsM -bor [System.Windows.Forms.TextFormatFlags]::VerticalCenter
 
     if ($Pct -lt 0) {
-        $rN = New-Object System.Drawing.Rectangle ([int]($Cx - $r)), ([int]($Cy - $r)), ([int]($r * 2)), ([int]($r * 2))
+        $rN = New-Object System.Drawing.Rectangle ([int]($Cx - $r)), ([int]($Cy - $r - $dyNum)), ([int]($r * 2)), ([int]($r * 2))
         [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $fontNum, $rN,
             (C $Theme.RingText), ($flagsC -bor [System.Windows.Forms.TextFormatFlags]::HorizontalCenter))
         $fontNum.Dispose()
         return
     }
 
-    $fsPct = [int][Math]::Round($fs * 0.62)
-    $fontPct = New-Object System.Drawing.Font 'Segoe UI', ([single]$fsPct), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    $fsPct = [int][Math]::Round($fs * $PCT_RATIO)
+    $fontPct = New-Object System.Drawing.Font 'Segoe UI Semibold', ([single]$fsPct), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    $dyPct = [int][Math]::Round($fsPct * $CENTER_FIX)
     # 用 GenericTypographic 测量：不含额外 padding，宽度最接近实际渲染
     $sfM = [System.Drawing.StringFormat]::GenericTypographic
     $numW = [int][Math]::Ceiling($G.MeasureString($Text, $fontNum, 1000, $sfM).Width)
     $pctW = [int][Math]::Ceiling($G.MeasureString('%', $fontPct, 1000, $sfM).Width)
 
-    # MeasureString 对 Bold 字体含约 2 逻辑像素的 overhang，这里扣掉，否则 % 会离数字太远
-    $gap = -(DS 2)
+    # 间距由 $PCT_GAP 控制：0 = 贴齐。旧版写死 -(DS 2) 是给 Bold 补 overhang，
+    # 换 SemiBold 后字形右侧留白变小，那个补偿反而变成挤压，用户明确要求归零。
+    $gap = [int][Math]::Round((DS $PCT_GAP))
     $totalW = $numW + $gap + $pctW
     $sx = [int]($Cx - $totalW / 2)
 
-    $rNum = New-Object System.Drawing.Rectangle $sx, ([int]($Cy - $r)), $numW, ([int]($r * 2))
+    $rNum = New-Object System.Drawing.Rectangle $sx, ([int]($Cy - $r - $dyNum)), $numW, ([int]($r * 2))
     [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $fontNum, $rNum, (C $Theme.RingText), $flagsC)
 
-    # % 往下沉 3px，视觉上落在数字右下角
-    $rPct = New-Object System.Drawing.Rectangle ($sx + $numW + $gap), ([int]($Cy - $r + (DS 3))), ($pctW + (DS 2)), ([int]($r * 2))
+    # % 下沉 PCT_DROP，视觉上落在数字右下角
+    $rPct = New-Object System.Drawing.Rectangle ($sx + $numW + $gap), ([int]($Cy - $r + (DS $PCT_DROP) - $dyPct)), ($pctW + (DS 2)), ([int]($r * 2))
     [System.Windows.Forms.TextRenderer]::DrawText($G, '%', $fontPct, $rPct, (C $Theme.RingText), $flagsC)
 
     $fontNum.Dispose(); $fontPct.Dispose()
@@ -465,8 +498,10 @@ function Draw-MoneyRing {
     param($G, [single]$Cx, [single]$Cy, [string]$Text, [string]$ColorHex)
 
     $r = DS $RING_R
-    # 比百分比圆环细一档（2 vs 4），一眼能区分「这是余额，不是用量」
-    $penW = DS 2
+    # 笔宽与用量环统一（用户明确要求）。原来这里故意用 2 让余额环更细以便区分，
+    # 但两个环并排时粗细不一致会显得「没对齐」，改成共用 $DOCK_PEN。
+    # 区分手段改为：余额环不画进度弧（整圈实线）+ 内容是金额。
+    $penW = DS $DOCK_PEN
     $box = [single](($r - $penW / 2) * 2)
     $bx = [single]($Cx - $box / 2)
     $by = [single]($Cy - $box / 2)
@@ -492,13 +527,15 @@ function Draw-MoneyRing {
     # 金额字号按长度自适应，保证不撑破圆环
     $fs = DS (Get-MoneyFontPx $Text)
     $font = New-Object System.Drawing.Font 'Segoe UI', ([single]$fs), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    # 和用量环同样的垂直居中修正
+    $dyM = [int][Math]::Round($fs * $CENTER_FIX)
     $flags = [System.Windows.Forms.TextFormatFlags]::NoPadding -bor
              [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor
              [System.Windows.Forms.TextFormatFlags]::HorizontalCenter -bor
              [System.Windows.Forms.TextFormatFlags]::NoPrefix
     # 文本框比圆环略宽一点（负号/¥ 容易贴边），靠 Ellipsis 兜底
     $pad = [int](DS 3)
-    $rect = New-Object System.Drawing.Rectangle ([int]($Cx - $r - $pad)), ([int]($Cy - $r)), ([int](($r + $pad) * 2)), ([int]($r * 2))
+    $rect = New-Object System.Drawing.Rectangle ([int]($Cx - $r - $pad)), ([int]($Cy - $r - $dyM)), ([int](($r + $pad) * 2)), ([int]($r * 2))
     [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $font, $rect, (C $ColorHex), $flags)
     $font.Dispose()
 }
@@ -587,10 +624,12 @@ function Draw-Dock {
         return
     }
 
-    $fontLbl = New-Object System.Drawing.Font 'Microsoft YaHei UI', ([single](DS 9)), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    $fontLbl = New-Object System.Drawing.Font 'Microsoft YaHei UI', ([single](DS $DOCK_LBL_SIZE)), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
     $ringR = DS $RING_R
     $unitW = DS $DOCK_W
     $unitH = DS $DOCK_H
+    # 小档不画账户名：51px 单元里标签只有约 6px 高，笔画糊在一起反而更乱
+    $showLabel = ($script:DockScale -ge $DOCK_LBL_MIN_SCALE)
 
     for ($i = 0; $i -lt $top.Count; $i++) {
         $a = $top[$i]
@@ -605,7 +644,8 @@ function Draw-Dock {
             $oy = 0
             $cx = $ox + $unitW / 2
         }
-        $cy = $oy + (DS 12) + $ringR
+        # 有标签：圆环靠上，下面留出标签行；无标签：圆环在单元里垂直居中
+        $cy = if ($showLabel) { $oy + (DS $DOCK_PAD_TOP) + $ringR } else { $oy + $unitH / 2 }
 
         if ($a.kind -eq 'money') {
             # 余额账户也用圆环（用户明确要求），只是不画进度弧，改成细描边 + 居中金额
@@ -626,11 +666,13 @@ function Draw-Dock {
         }
 
         # 标签占满整个单元宽度（左右各留 6），比圆圈宽，能放更多字
-        $lblColor = if ($a.ok) { $Theme.Tx2 } else { $Theme.Tx3 }
-        $lx = if ($vert) { (DS 6) } else { $ox + (DS 6) }
-        $lw = if ($vert) { $W - (DS 12) } else { $unitW - (DS 12) }
-        Draw-Text -G $G -Text $a.short -Font $fontLbl -Color $lblColor `
-            -X $lx -Y ($cy + $ringR + (DS 4)) -W $lw -H (DS 12) -Align Center -Ellipsis
+        if ($showLabel) {
+            $lblColor = if ($a.ok) { $Theme.Tx2 } else { $Theme.Tx3 }
+            $lx = if ($vert) { (DS 6) } else { $ox + (DS 6) }
+            $lw = if ($vert) { $W - (DS 12) } else { $unitW - (DS 12) }
+            Draw-Text -G $G -Text $a.short -Font $fontLbl -Color $lblColor `
+                -X $lx -Y ($cy + $ringR + (DS $DOCK_RING_GAP)) -W $lw -H (DS $DOCK_LBL_H) -Align Center -Ellipsis
+        }
     }
     $fontLbl.Dispose()
 }
@@ -774,6 +816,43 @@ if ($SelfTest) {
     }
     Write-Host ("  界面缩放 = " + $script:Cfg.uiScale)
 
+    # 折叠态文字是否塞得进圆环（量化，不靠肉眼）
+    # 圆环内径 = (R - 笔宽) * 2；文字宽 = 数字宽 + %宽 + 间距
+    # 判定用「填充率」：<50% 显得飘，>85% 显得挤，理想区间 60~80%
+    Write-Host "=== 折叠态文字填充率（逻辑像素）==="
+    Write-Host ("  笔宽 " + $DOCK_PEN + " / 数字 " + $NUM_SIZE + " SemiBold / %比例 " + $PCT_RATIO + " / 间距 " + $PCT_GAP)
+    $bmpM = New-Object System.Drawing.Bitmap 1, 1
+    $gM = [System.Drawing.Graphics]::FromImage($bmpM)
+    $sfM = [System.Drawing.StringFormat]::GenericTypographic
+    $innerD = ($RING_R - $DOCK_PEN) * 2
+    $pass = 0; $total = 0
+    foreach ($ds in @(@{ N = '小'; V = 0.75 }, @{ N = '默认'; V = 1.0 }, @{ N = '大'; V = 1.25 })) {
+        $inner = $innerD * $ds.V
+        $cases = @(
+            @{ T = '58';  F = $NUM_SIZE },
+            @{ T = '100'; F = $NUM_SIZE_3 },
+            @{ T = '5';   F = $NUM_SIZE }
+        )
+        foreach ($c in $cases) {
+            $fsN = [single]($c.F * $ds.V)
+            $fsP = [single]($fsN * $PCT_RATIO)
+            $fN = New-Object System.Drawing.Font 'Segoe UI Semibold', $fsN, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+            $fP = New-Object System.Drawing.Font 'Segoe UI Semibold', $fsP, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+            $wN = $gM.MeasureString($c.T, $fN, 1000, $sfM).Width
+            $wP = $gM.MeasureString('%', $fP, 1000, $sfM).Width
+            $tot = $wN + $wP + ($PCT_GAP * $ds.V)
+            $fill = $tot / $inner * 100
+            $ok = ($fill -le 85)
+            $total++; if ($ok) { $pass++ }
+            Write-Host ("  [" + $(if ($ok) { 'OK  ' } else { 'FAIL' }) + "] " + $ds.N.PadRight(4) +
+                " 「" + $c.T + "%」宽 " + [Math]::Round($tot, 1) + " / 内径 " + [Math]::Round($inner, 1) +
+                "  填充 " + [Math]::Round($fill, 0) + "%" + $(if ($fill -lt 50 -and $c.T.Length -ge 2) { '  (偏飘)' } else { '' }))
+            $fN.Dispose(); $fP.Dispose()
+        }
+    }
+    $gM.Dispose(); $bmpM.Dispose()
+    Write-Host ("  通过 " + $pass + "/" + $total)
+
     Write-Host "=== 颜色逻辑边界测试 ==="
     Write-Host "  (0=青 1=黄 2=红；按使用量判断)"
     $cases = @(
@@ -805,6 +884,30 @@ if ($SelfTest) {
 }
 
 # ============================================================
+# 单实例保护
+# ============================================================
+# 双击两次不该出现两个悬浮窗（那也会让启动时的黑窗闪两轮）。
+# 所有 -Xxx 验证开关都跳过此检查，否则测试会被正在运行的实例挡住。
+$script:IsTestMode = [bool]($SelfTest -or $Shot -or $Demo -or $DumpMenu -or $ConfigShot -or
+    $LayoutCheck -or $TestAutostart -or $TestUI -or $GeomTest -or
+    $TestScale -or $TestRescaleLive -or $Anim -or $ForceOrient -or $ForceTheme)
+
+if (-not $script:IsTestMode) {
+    try {
+        $createdNew = $false
+        $script:InstanceMutex = [System.Threading.Mutex]::new($true, 'TokenPocket_SingleInstance', [ref]$createdNew)
+        if (-not $createdNew) {
+            Write-CoreLog '已有实例在运行，本次启动直接退出（单实例保护）'
+            exit 0
+        }
+        Write-CoreLog '单实例锁已获取'
+    } catch {
+        # 拿不到锁不阻塞启动，只是可能多开
+        Write-CoreLog ('单实例检测失败（不阻塞启动）: ' + $_.Exception.Message)
+    }
+}
+
+# ============================================================
 # 窗口
 # ============================================================
 $form = New-Object System.Windows.Forms.Form
@@ -819,6 +922,46 @@ $form.Text = $script:AppName
 # 配置窗口内部也叫 $form，从那里调 Apply-Mode 就会去改设置窗口本身（已踩过：设置页被缩成 89×89）。
 # 所以凡是被跨窗口调用的函数，一律用 $script:MainForm 显式指名。
 $script:MainForm = $form
+
+# 悬浮窗透明度：四档 100 / 70 / 50 / 30（用户指定）。
+# 用 Form.Opacity（分层窗口）实现 —— Region 圆角与鼠标命中都不受影响，
+# 只作用于主悬浮窗，设置窗口始终不透明（否则调 30% 时自己都看不清）。
+function Preview-Opacity {
+    param([double]$V)
+    if ($V -lt 0.3) { $V = 0.3 }
+    if ($V -gt 1.0) { $V = 1.0 }
+    try { $script:MainForm.Opacity = $V } catch { }
+    # 改 Opacity 会走 WinForms 的分层窗口路径，置顶位可能被顺手清掉，重新断言一次
+    Assert-TopMost
+}
+
+# 强制把主窗钉在最上层。
+# 为什么不能只靠 $form.TopMost = $true：实测该属性最终没落到 WS_EX_TOPMOST
+# （EXSTYLE=0x00090000，只有 LAYERED|CONTROLPARENT），点别的窗口就被覆盖。
+# 这里做两件事：
+#   1) 读-改-写 GWL_EXSTYLE，确保 WS_EX_TOPMOST(0x8) 位被置上（保留其他位）
+#   2) SetWindowPos(HWND_TOPMOST) 真正抬进 topmost 带 —— 只设样式位不会立刻重排 z 序
+function Assert-TopMost {
+    try {
+        if (-not $script:MainForm) { return }
+        if (-not $script:MainForm.IsHandleCreated) { return }
+        $h = $script:MainForm.Handle
+        $GWL_EXSTYLE = -20
+        $WS_EX_TOPMOST = 0x8
+        $ex = [NativeWin]::GetWindowLong($h, $GWL_EXSTYLE)
+        if (($ex -band $WS_EX_TOPMOST) -eq 0) {
+            [void][NativeWin]::SetWindowLong($h, $GWL_EXSTYLE, ($ex -bor $WS_EX_TOPMOST))
+        }
+        # HWND_TOPMOST = -1；SWP_NOSIZE(1)|SWP_NOMOVE(2)|SWP_NOACTIVATE(0x10)
+        [void][NativeWin]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x13)
+    } catch { }
+}
+
+# 启动时按配置恢复透明度
+$op0 = 1.0
+if ($script:Cfg.opacity) { [void][double]::TryParse([string]$script:Cfg.opacity, [ref]$op0) }
+Preview-Opacity -V $op0
+Write-CoreLog ('启动透明度 = ' + $script:MainForm.Opacity)
 
 # 取窗口实际 DPI（强制创建句柄），据此确定缩放因子
 try {
@@ -854,12 +997,10 @@ function Get-WorkArea {
 function Update-WindowRegion {
     param([int]$W, [int]$H)
     $base = if ($script:Mode -eq 'dock') { [single](DS 18) } else { [single](S 18) }
-    $rtl = $base; $rtr = $base; $rbr = $base; $rbl = $base
-    if ($script:SnapEdgeV -eq 'bottom') { $rbr = 0; $rbl = 0 }
-    if ($script:SnapEdgeV -eq 'top')    { $rtl = 0; $rtr = 0 }
-    if ($script:SnapEdgeH -eq 'left')   { $rtl = 0; $rbl = 0 }
-    if ($script:SnapEdgeH -eq 'right')  { $rtr = 0; $rbr = 0 }
-    $path = New-RoundedPathEx -X 0 -Y 0 -W $W -H $H -RTL $rtl -RTR $rtr -RBR $rbr -RBL $rbl
+    # 贴边时也保持四角圆角（用户明确要求）。
+    # 之前这里会把贴边那侧的圆角置 0 做成「直角贴齐」，但视觉上反而像被切掉一块；
+    # 圆角贴边只会露出 1~2px 桌面，比直角更自然。
+    $path = New-RoundedPathEx -X 0 -Y 0 -W $W -H $H -RTL $base -RTR $base -RBR $base -RBL $base
     $script:MainForm.Region = New-Object System.Drawing.Region $path
     $path.Dispose()
 }
@@ -1073,10 +1214,12 @@ function Update-DockGeometry {
     $script:SnapEdgeH = $eH
     $script:SnapEdgeV = $eV
 
-    # 2) 方向：贴左右边 → 纵排；贴上下边 / 自由漂浮 → 横排。
-    #    只在「真的贴上竖边」时才换向，避免离边缘几十像素就自己竖起来（那样很惊悚）
+    # 2) 方向：贴左右边 **且** 窗口底边距工作区底部 ≥150 物理像素 → 纵排；否则横排。
+    #    150 是物理像素（用户明确指定），不做 S() 换算 —— 150% 屏上视觉约 100 逻辑像素。
+    #    贴住底部时距离为 0，自然横排：右下角是最常见的位置，不该被竖起来挡视线。
+    $distToBottom = $wa.Bottom - ($ny + $ch)
     $orient = 'h'
-    if ($eH -ne 'none') { $orient = 'v' }
+    if ($eH -ne 'none' -and $distToBottom -ge 150) { $orient = 'v' }
     if ($orient -ne $script:DockOrient) {
         $script:DockOrient = $orient
         if ($script:Mode -eq 'dock') { $resize = $true }
@@ -1131,6 +1274,8 @@ $form.add_LocationChanged({
 # ============================================================
 function Show-Panel {
     $script:MainForm.Show()
+    # Hide/Show 之后置顶位会丢，重新断言（关闭按钮走的是 Hide）
+    Assert-TopMost
     $script:MainForm.Activate()
     if ($script:Mode -ne 'panel') { Apply-Mode 'panel' }
 }
@@ -1192,9 +1337,13 @@ function Open-ConfigFile {
             # 刷新间隔可能变了，重启定时器
             $timer.Interval = [Math]::Max(1, [int]$script:Cfg.refreshMinutes) * 60 * 1000
             $timer.Stop(); $timer.Start()
+            # 透明度
+            $opv = 1.0
+            if ($script:Cfg.opacity) { [void][double]::TryParse([string]$script:Cfg.opacity, [ref]$opv) }
+            Preview-Opacity -V $opv
             Apply-Mode $script:Mode
             Refresh-Data
-            Write-CoreLog ('配置已保存并生效（浮窗 ' + $script:DockScale + '×）')
+            Write-CoreLog ('配置已保存并生效（浮窗 ' + $script:DockScale + '×，透明度 ' + $opv + '）')
         }
     } catch {
         Write-CoreLog ('打开配置页失败: ' + $_.Exception.Message)
@@ -1209,8 +1358,11 @@ function Open-ConfigFile {
 $script:RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 
 function Get-AutostartCommand {
-    $script = Join-Path $script:Root 'TokenPanel.ps1'
-    return 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $script + '"'
+    # 用 VBS 启动器，而不是直接调 powershell：
+    # 直接调 powershell 即使带 -WindowStyle Hidden，开机时仍会闪一下控制台
+    # （窗口先创建、再隐藏）。VBS 的窗口模式 0 是从创建起就隐藏，全程无窗。
+    $vbsPath = Join-Path $script:Root 'TokenPocket.vbs'
+    return 'wscript.exe //nologo "' + $vbsPath + '"'
 }
 
 function Get-AutostartEnabled {
@@ -1480,6 +1632,25 @@ if ($GeomTest) {
         return @{ X = $r.Left; Y = $r.Top; W = ($r.Right - $r.Left); H = ($r.Bottom - $r.Top); R = $r.Right; B = $r.Bottom }
     }
 
+    # 四个角是否真的被切圆：
+    # 圆角时角落像素不在 Region 内（IsVisible=false）；直角时在区域内。
+    # 比肉眼看截图可靠 —— 之前贴边被强制直角就是肉眼没发现。
+    function GT-Corners([string]$Name) {
+        $s = GT-Size
+        Update-WindowRegion -W $s.W -H $s.H
+        $reg = $script:MainForm.Region
+        if (-not $reg) { GT $Name $false 'Region 为空'; return }
+        $pts = @(
+            (New-Object System.Drawing.Point 2, 2),
+            (New-Object System.Drawing.Point ($s.W - 3), 2),
+            (New-Object System.Drawing.Point 2, ($s.H - 3)),
+            (New-Object System.Drawing.Point ($s.W - 3), ($s.H - 3))
+        )
+        $cut = 0
+        foreach ($p in $pts) { if (-not $reg.IsVisible($p)) { $cut++ } }
+        GT $Name ($cut -eq 4) ($cut.ToString() + '/4 角为圆角，吸附 ' + $script:SnapEdgeH + '/' + $script:SnapEdgeV)
+    }
+
     $wa = Get-WorkArea
     $midY = [int][Math]::Floor($wa.Top + ($wa.Bottom - $wa.Top) / 2)
     $midX = [int][Math]::Floor($wa.Left + ($wa.Right - $wa.Left) / 2)
@@ -1496,6 +1667,22 @@ if ($GeomTest) {
     $n = Get-DockCount
     GT ('纵排尺寸 = 1 列 × ' + $n + ' 行') (($r1.W -eq (DS $DOCK_W)) -and ($r1.H -eq (DS ($n * $DOCK_H)))) ($r1.W.ToString() + 'x' + $r1.H)
     GT '纵排贴齐右边缘' ($r1.R -eq $wa.Right) (($r1.R - $wa.Right).ToString() + 'px')
+    GT-Corners '贴右边后四角仍是圆角'
+
+    # 1b) 纵排门槛：贴右边但离任务栏不足 150 物理像素 → 必须保持横排（用户第 4 条）
+    $script:DockOrient = 'h'
+    $sB = GT-Size
+    GT-Place ($wa.Right - $sB.W - $gap) ($wa.Bottom - $sB.H - 149)
+    [void](Update-DockGeometry)
+    GT '贴右边 + 离底 149px → 横排' ($script:DockOrient -eq 'h') ('方向 ' + $script:DockOrient)
+
+    $script:DockOrient = 'h'
+    $sB = GT-Size
+    GT-Place ($wa.Right - $sB.W - $gap) ($wa.Bottom - $sB.H - 151)
+    [void](Update-DockGeometry)
+    GT '贴右边 + 离底 151px → 纵排' ($script:DockOrient -eq 'v') ('方向 ' + $script:DockOrient)
+    # 换回纵排尺寸，后续用例按纵排尺寸继续
+    Apply-Mode 'dock'
 
     # 2) 贴近底边（水平居中）→ 吸附 bottom + 横排
     $s1 = GT-Size
@@ -1507,6 +1694,7 @@ if ($GeomTest) {
     $r2 = GT-Size
     GT ('横排尺寸 = ' + $n + ' 列 × 1 行') (($r2.W -eq (DS ($n * $DOCK_W))) -and ($r2.H -eq (DS $DOCK_H))) ($r2.W.ToString() + 'x' + $r2.H)
     GT '横排贴齐下边缘' (($r2.B - $wa.Bottom) -eq 0) (($r2.B - $wa.Bottom).ToString() + 'px')
+    GT-Corners '贴底边后四角仍是圆角'
 
     # 3) 屏幕中间 → 不吸附、保持横排
     $s2 = GT-Size
@@ -1756,4 +1944,7 @@ if ($Shot) {
 }
 
 $form.Show()
+# 句柄此时才真正创建完成，属性设置期间设的 TopMost 可能没落到位，这里显式钉一次
+Assert-TopMost
+Write-CoreLog ('置顶断言后 EXSTYLE=0x' + ([NativeWin]::GetWindowLong($form.Handle, -20)).ToString('X8'))
 [System.Windows.Forms.Application]::Run($form)

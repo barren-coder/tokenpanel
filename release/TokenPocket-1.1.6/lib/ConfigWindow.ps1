@@ -233,7 +233,7 @@ function Show-ConfigWindow {
     $CARD2_Y = 132
     $ROW_H = 52
     $ROW_GAP = 6
-    $SYS_H = 826                 # 系统配置页的基准高度（S5 底 744 + 底部按钮栏 82）
+    $SYS_H = 854                 # 系统配置页的基准高度（S5 底 772 + 底部按钮栏 82）
 
     # 模板标签（实测宽度，超宽自动换行）
     $tabFont = CW-Font -Size 9
@@ -604,16 +604,18 @@ function Show-ConfigWindow {
     $dockHint = CW-Label -Text '' -X 18 -Y 80 -W ($RW - 36) -H 18 -Color $CW.Tx3 -Size 8
     $s2.Controls.Add($dockHint)
 
-    # --- 卡片 S3：外观与显示（配色 + 折叠态显示数量）---
+    # --- 卡片 S3：外观与显示（配色 | 透明度 | 折叠态显示数量）---
+    # 配色与透明度并排一行：两者都是「一眼看到的效果」，放一起对比着调最直观
     $s3 = New-Object System.Windows.Forms.Panel
     $s3.Location = New-Object System.Drawing.Point $RX, 290
-    $s3.Size = New-Object System.Drawing.Size $RW, 152
+    $s3.Size = New-Object System.Drawing.Size $RW, 180
     $s3.BackColor = CC $CW.Card
     $form.Controls.Add($s3)
     $sysCtrls += $s3
     $s3.Controls.Add((CW-Label -Text '外观与显示' -X 18 -Y 14 -W 200 -H 22 -Color $CW.Tx -Size 10 -Bold))
-    $s3.Controls.Add((CW-Label -Text '配色' -X 18 -Y 44 -W 100 -H 18 -Color $CW.Tx3 -Size 8))
 
+    # 左：配色
+    $s3.Controls.Add((CW-Label -Text '配色' -X 18 -Y 44 -W 100 -H 18 -Color $CW.Tx3 -Size 8))
     $themeDefs = @(
         @{ Id = 'dark';  Text = '深色' },
         @{ Id = 'light'; Text = '浅色' }
@@ -626,18 +628,37 @@ function Show-ConfigWindow {
         $themeButtons[$d.Id] = $b
         $tx += $b.Width + 8
     }
-    $themeHint = CW-Label -Text '' -X 200 -Y 70 -W ($RW - 218) -H 18 -Color $CW.Tx3 -Size 8
+
+    # 右：透明度（100 / 70 / 50 / 30）
+    $s3.Controls.Add((CW-Label -Text '透明度' -X 200 -Y 44 -W 120 -H 18 -Color $CW.Tx3 -Size 8))
+    $opacityDefs = @(
+        @{ Id = '1';   Text = '100%' },
+        @{ Id = '0.7'; Text = '70%' },
+        @{ Id = '0.5'; Text = '50%' },
+        @{ Id = '0.3'; Text = '30%' }
+    )
+    $opacityButtons = @{}
+    $ox = 200
+    foreach ($d in $opacityDefs) {
+        $b = CW-Chip -Text $d.Text -X $ox -Y 64 -H 30 -On $false -Tag2 $d.Id
+        $s3.Controls.Add($b)
+        $opacityButtons[$d.Id] = $b
+        $ox += $b.Width + 8
+    }
+
+    # 配色与透明度的说明合并成一行，横跨整行（两句分开写会挤出卡片）
+    $themeHint = CW-Label -Text '' -X 18 -Y 102 -W ($RW - 36) -H 18 -Color $CW.Tx3 -Size 8
     $s3.Controls.Add($themeHint)
 
-    $s3.Controls.Add((CW-Label -Text '悬浮窗显示数量（1–5）' -X 18 -Y 104 -W 220 -H 18 -Color $CW.Tx3 -Size 8))
-    $tbMaxItems = CW-Text -X 18 -Y 122 -W 90 -H 26 -Value ([string]$script:EditCfg.maxDockItems)
+    $s3.Controls.Add((CW-Label -Text '悬浮窗显示数量（1–5）' -X 18 -Y 124 -W 220 -H 18 -Color $CW.Tx3 -Size 8))
+    $tbMaxItems = CW-Text -X 18 -Y 142 -W 90 -H 26 -Value ([string]$script:EditCfg.maxDockItems)
     $s3.Controls.Add($tbMaxItems)
-    $maxItemsHint = CW-Label -Text '只影响折叠态，展开态始终显示全部账户' -X 120 -Y 126 -W ($RW - 138) -H 18 -Color $CW.Tx3 -Size 8
+    $maxItemsHint = CW-Label -Text '只影响折叠态，展开态始终显示全部账户' -X 120 -Y 146 -W ($RW - 138) -H 18 -Color $CW.Tx3 -Size 8
     $s3.Controls.Add($maxItemsHint)
 
     # --- 卡片 S4：启动与查询 ---
     $s4 = New-Object System.Windows.Forms.Panel
-    $s4.Location = New-Object System.Drawing.Point $RX, 452
+    $s4.Location = New-Object System.Drawing.Point $RX, 480
     $s4.Size = New-Object System.Drawing.Size $RW, 180
     $s4.BackColor = CC $CW.Card
     $form.Controls.Add($s4)
@@ -663,7 +684,7 @@ function Show-ConfigWindow {
 
     # --- 卡片 S5：关于 ---
     $s5 = New-Object System.Windows.Forms.Panel
-    $s5.Location = New-Object System.Drawing.Point $RX, 644
+    $s5.Location = New-Object System.Drawing.Point $RX, 672
     $s5.Size = New-Object System.Drawing.Size $RW, 100
     $s5.BackColor = CC $CW.Card
     $form.Controls.Add($s5)
@@ -719,18 +740,27 @@ function Show-ConfigWindow {
         if ($ds -le 0) { $ds = 1.0 }
         $dsKey = if ($ds -lt 0.9) { '0.75' } elseif ($ds -gt 1.1) { '1.25' } else { '1' }
         foreach ($k in $dockButtons.Keys) { Set-ChipState $dockButtons[$k] ($k -eq $dsKey) }
-        $u = [int][Math]::Round(89 * $ds)
-        $dockHint.Text = ('单账户浮窗约 ' + $u + '×' + $u + ' 像素（基准 89×89）。点完立即生效。')
+        $u = [int][Math]::Round($DOCK_W * $ds)
+        $dockHint.Text = ('单账户浮窗约 ' + $u + '×' + $u + ' 像素（基准 ' + $DOCK_W + '×' + $DOCK_W + '）。点完立即生效。')
 
-        # 配色
+        # 配色 + 透明度：两句说明合成一行，否则卡片放不下
         $th = [string]$script:EditCfg.theme
         if ($th -notin @('dark', 'light')) { $th = 'dark' }
         foreach ($k in $themeButtons.Keys) { Set-ChipState $themeButtons[$k] ($k -eq $th) }
-        $themeHint.Text = if ($th -eq 'light') {
-            '浅色：参考 Windows 11 浅色主题，白底深字。点完立即生效。'
-        } else {
-            '深色：默认配色，长时间挂在桌面上不刺眼。'
+
+        $opv = [double]$script:EditCfg.opacity
+        if ($opv -le 0) { $opv = 1.0 }
+        $opKey = if ($opv -ge 0.95) { '1' } elseif ($opv -ge 0.6) { '0.7' } elseif ($opv -ge 0.4) { '0.5' } else { '0.3' }
+        foreach ($k in $opacityButtons.Keys) { Set-ChipState $opacityButtons[$k] ($k -eq $opKey) }
+
+        $thTxt = if ($th -eq 'light') { '浅色：白底深字，接近 Windows 11 浅色主题。' } else { '深色：默认配色，长时间挂着不刺眼。' }
+        $opTxt = switch ($opKey) {
+            '1'     { '完全不透明，最清晰。' }
+            '0.7'   { '略透，仍然清晰可读。' }
+            '0.5'   { '半透明，文字开始变淡。' }
+            default { '很淡，只留轮廓，适合不想被打扰时。' }
         }
+        $themeHint.Text = $thTxt + ' ｜ 透明度 ' + [int][Math]::Round($opv * 100) + '%：' + $opTxt + ' 点完立即生效。'
 
         # 折叠态显示数量
         $mi = 0
@@ -755,6 +785,9 @@ function Show-ConfigWindow {
     try { $script:DockOrigScale = [double]$Cfg.dockScale } catch { }
     if ($script:DockOrigScale -le 0) { $script:DockOrigScale = 1.0 }
     $script:ThemeOrig = if ([string]$Cfg.theme -eq 'light') { 'light' } else { 'dark' }
+    $script:OpacityOrig = 1.0
+    try { $script:OpacityOrig = [double]$Cfg.opacity } catch { }
+    if ($script:OpacityOrig -le 0) { $script:OpacityOrig = 1.0 }
     function Restore-DockPreview {
         if (Get-Command Preview-DockScale -ErrorAction SilentlyContinue) {
             try { Preview-DockScale -V $script:DockOrigScale } catch { }
@@ -762,6 +795,10 @@ function Show-ConfigWindow {
         # 配色也一起回滚，否则「点了浅色又取消」会留在浅色
         if (Get-Command Preview-Theme -ErrorAction SilentlyContinue) {
             try { Preview-Theme -Name $script:ThemeOrig } catch { }
+        }
+        # 透明度同理：点了 30% 又取消，不能留在 30%
+        if (Get-Command Preview-Opacity -ErrorAction SilentlyContinue) {
+            try { Preview-Opacity -V $script:OpacityOrig } catch { }
         }
     }
 
@@ -1161,6 +1198,21 @@ function Show-ConfigWindow {
         })
     }
 
+    # ---- 透明度 chips：立即作用到主悬浮窗，取消时由 Restore-DockPreview 回滚 ----
+    foreach ($k in $opacityButtons.Keys) {
+        $b = $opacityButtons[$k]
+        $b.Add_Click({
+            param($s, $e)
+            $v = 1.0
+            [void][double]::TryParse([string]$s.Tag, [ref]$v)
+            $script:EditCfg.opacity = $v
+            if (Get-Command Preview-Opacity -ErrorAction SilentlyContinue) {
+                try { Preview-Opacity -V $v } catch { }
+            }
+            Update-SystemHints
+        })
+    }
+
     # ---- 开机启动开关 ----
     $swAuto.Add_Click({
         param($s, $e)
@@ -1379,6 +1431,32 @@ function Show-ConfigWindow {
         $dockButtons['1'].PerformClick()
         CHK '点「默认」写入 dockScale' ([double]$script:EditCfg.dockScale -eq 1.0) $script:EditCfg.dockScale
 
+        # 2b) 透明度：既要写进配置，也要真的作用到主悬浮窗
+        $opacityButtons['0.3'].PerformClick()
+        CHK '点「30%」写入 opacity' ([Math]::Abs([double]$script:EditCfg.opacity - 0.3) -lt 0.001) $script:EditCfg.opacity
+        $mainOp = 1.0
+        try { $mainOp = $script:MainForm.Opacity } catch { }
+        CHK '主悬浮窗立刻变 30% 透明' ([Math]::Abs($mainOp - 0.3) -lt 0.01) ('Opacity=' + $mainOp)
+        $opacityButtons['0.7'].PerformClick()
+        $mainOp = 1.0
+        try { $mainOp = $script:MainForm.Opacity } catch { }
+        CHK '点「70%」→ 窗口 0.7' ([Math]::Abs($mainOp - 0.7) -lt 0.01) ('Opacity=' + $mainOp)
+        $opacityButtons['1'].PerformClick()
+        $mainOp = 1.0
+        try { $mainOp = $script:MainForm.Opacity } catch { }
+        CHK '点「100%」→ 窗口回到 1.0' ([Math]::Abs($mainOp - 1.0) -lt 0.01) ('Opacity=' + $mainOp)
+
+        # 2c) 取消回滚：点 30% 后走取消路径，必须回到「窗口打开时的值」。
+        # 基准必须是 $script:OpacityOrig（打开时从配置读的），不能读当前 MainForm.Opacity ——
+        # 上面刚点过 100%，当前值是 1.0，拿它当基准会误判成失败（踩过）。
+        $opacityButtons['0.3'].PerformClick()
+        $opMid = 1.0
+        try { $opMid = $script:MainForm.Opacity } catch { }
+        Restore-DockPreview
+        $opAfter = 1.0
+        try { $opAfter = $script:MainForm.Opacity } catch { }
+        CHK '取消回滚：30% 恢复打开时的值' (([Math]::Abs($opMid - 0.3) -lt 0.01) -and ([Math]::Abs($opAfter - $script:OpacityOrig) -lt 0.01)) ('点后 ' + $opMid + ' → 回滚 ' + $opAfter + '（打开时 ' + $script:OpacityOrig + '）')
+
         # 3) 开机自启（真实写注册表，测完复原）
         $before = if (Get-Command Get-AutostartEnabled -ErrorAction SilentlyContinue) { Get-AutostartEnabled } else { $false }
         $mi.Invoke($swAuto, $clickArgs)
@@ -1406,6 +1484,12 @@ function Show-ConfigWindow {
 
         # 5) 超时/间隔 + 保存落盘
         #    保存前把界面缩放/悬浮大小/配色点回打开时的值，保证测试留下的文件是「中性」的
+        #    注意：下面这些 chip 都在系统页上，而第 4 步已切到账户页。
+        #    PerformClick 要求控件可见（CanSelect），隐藏时不触发 —— 必须先切页，
+        #    否则点击静默失效、保存下去的还是旧值（踩过两次）。
+        Show-Page -Page 'system'
+        [System.Windows.Forms.Application]::DoEvents()
+
         $dsv = 0.0
         if (-not [double]::TryParse([string]$Cfg.dockScale, [ref]$dsv) -or $dsv -le 0) { $dsv = 1.0 }
         $dsKey = if ($dsv -lt 0.9) { '0.75' } elseif ($dsv -gt 1.1) { '1.25' } else { '1' }
@@ -1418,12 +1502,14 @@ function Show-ConfigWindow {
         $themeButtons[$thCfg].PerformClick()
         $tbTimeout.Text = '25'
         $tbInterval.Text = '7'
+        $opacityButtons['0.5'].PerformClick()      # 用非默认值验证落盘
         $btnSave.PerformClick()
         Start-Sleep -Milliseconds 400
         $sv = Get-Content $script:ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
         CHK '保存后 timeout=25' ($sv.timeout -eq 25) ([string]$sv.timeout)
         CHK '保存后 refreshMinutes=7' ($sv.refreshMinutes -eq 7) ([string]$sv.refreshMinutes)
         CHK '保存后 uiScale / dockScale 都在' (($null -ne $sv.uiScale) -and ($null -ne $sv.dockScale)) ($sv.uiScale + ' / ' + $sv.dockScale)
+        CHK '保存后 opacity=0.5 落盘' ([Math]::Abs([double]$sv.opacity - 0.5) -lt 0.001) ([string]$sv.opacity)
         CHK '保存后 dockScale 与打开时一致' ([double]$sv.dockScale -eq $dsv) ([string]$sv.dockScale + ' vs ' + $dsv)
         CHK '保存后 theme 与打开时一致' ([string]$sv.theme -eq $thCfg) ([string]$sv.theme)
         CHK '保存后账户仍是 tokenplan/minimax' (($sv.providers[0].tpl -eq 'tokenplan') -and ($sv.providers[0].type -eq 'minimax')) ($sv.providers[0].tpl + '/' + $sv.providers[0].type)
