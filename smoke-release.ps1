@@ -1,5 +1,7 @@
 # smoke-release.ps1 — 发布包冒烟测试
 # 解压到全新临时目录，验证：能启动、窗口能出现、置顶生效、快捷方式生成正确
+# 用法：powershell -File .\smoke-release.ps1 [-Version 1.2.3]
+param([string]$Version = '1.2.3')
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -32,7 +34,7 @@ public class Smoke {
 [void][Smoke]::SetThreadDpiAwarenessContext([IntPtr](-4))
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$zip = Join-Path $root 'release\TokenPocket-1.1.6.zip'
+$zip = Join-Path $root ('release\TokenPocket-' + $Version + '.zip')
 $tmp = Join-Path $env:TEMP ('tp-smoke-' + (Get-Random))
 $pass = 0; $fail = 0
 function CHK([string]$n, [bool]$ok, [string]$d = '') {
@@ -42,12 +44,14 @@ function CHK([string]$n, [bool]$ok, [string]$d = '') {
 
 Write-Host '=== 1. 解压到全新目录 ==='
 Expand-Archive -Path $zip -DestinationPath $tmp -Force
-$app = Join-Path $tmp 'TokenPocket-1.1.6'
+$app = Join-Path $tmp ('TokenPocket-' + $Version)
 CHK '解压成功' (Test-Path $app) $app
 $need = @('TokenPanel.ps1', 'TokenPocket.vbs', 'start-token-pocket.cmd', 'debug-token-pocket.cmd',
-          '创建快捷方式.cmd', '使用说明.md', 'make-shortcut.ps1', 'lib\QuotaCore.ps1', 'lib\ConfigWindow.ps1')
+          '创建快捷方式.cmd', '使用说明.md', 'make-shortcut.ps1', 'lib\QuotaCore.ps1', 'lib\ConfigWindow.ps1',
+          'lib\wb\wb_query.js', 'lib\wb\grab_cookie.js')
 foreach ($f in $need) { CHK ('包含 ' + $f) (Test-Path (Join-Path $app $f)) }
 CHK '不含配置文件（密钥不入包）' (-not (Test-Path (Join-Path $app 'config.json')))
+CHK '不含登录态（.browser-profile 绝不入包）' (-not (Test-Path (Join-Path $app 'lib\wb\.browser-profile')))
 
 Write-Host ''
 Write-Host '=== 2. 清掉已有实例（单实例锁会挡住新进程）==='
@@ -87,9 +91,10 @@ if ($hwnd -ne [IntPtr]::Zero) {
 Start-Sleep -Milliseconds 800
 $newLines = @()
 if (Test-Path $log) { $newLines = Get-Content $log -Encoding UTF8 | Select-Object -Skip $before }
-$startLine = $newLines | Select-String '启动 v1\.1\.6'
-CHK '日志显示启动 v1.1.6' ($null -ne $startLine) $(if ($startLine) { ($startLine -join ' ') } else { '未找到' })
+$startLine = $newLines | Select-String ('启动 v' + [regex]::Escape($Version))
+CHK ('日志显示启动 v' + $Version) ($null -ne $startLine) $(if ($startLine) { ($startLine -join ' ') } else { '未找到' })
 $topLine = $newLines | Select-String '置顶断言后 EXSTYLE=0x00090008'
+if (-not $topLine) { $topLine = $newLines | Select-String '置顶补钉完成 EXSTYLE=0x00090008' }
 CHK '置顶断言日志正确' ($null -ne $topLine) $(if ($topLine) { ($topLine -join ' ') } else { '未找到' })
 
 Write-Host ''

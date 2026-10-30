@@ -1041,12 +1041,12 @@ v1.1.0 已用 `$script:UserMoving` 挡住程序自身位移，但如果你改了
 所以不能用「发布为在线链接」那套（那是给静态站点/小游戏用的，对方点了链接也跑不起来桌面程序）。
 对外分发只有两条路：**压缩包**（首发推荐）或**安装包**（Inno Setup / NSIS / WinRAR SFX）。
 
-### 当前发布物（v1.1.6）
+### 当前发布物（v1.2.3，2026-10-30）
 
 ```
 release/
-├─ TokenPocket-1.1.6.zip      ← 直接发这个（约 193 KB）
-└─ TokenPocket-1.1.6/         ← zip 的源目录，改完重新打包
+├─ TokenPocket-1.2.3.zip      ← 直接发这个（约 210 KB）
+└─ TokenPocket-1.2.3/         ← zip 的源目录，改完重新打包
    ├─ TokenPocket.vbs             ★ 推荐入口，双击启动、零黑窗
    ├─ 创建快捷方式.cmd            ★ 生成 Token Pocket.lnk（一次性）
    ├─ start-token-pocket.cmd      兼容入口，转调 VBS
@@ -1055,9 +1055,13 @@ release/
    ├─ TokenPanel.ps1
    ├─ lib/QuotaCore.ps1
    ├─ lib/ConfigWindow.ps1
+   ├─ lib/wb/wb_query.js          WorkBuddy 查询（无头 Chrome）
+   ├─ lib/wb/grab_cookie.js       WorkBuddy 授权
    ├─ 使用说明.md
    └─ 截图/（6 张）
 ```
+
+> v1.1.6 目录保留作历史快照；新版本按 `TokenPocket-<版本>` 新建目录后从 1.1.6 复制骨架再覆盖源码。
 
 **不要打包 `.lnk`**：里面存的是开发机的绝对路径，到别人电脑上直接失效。
 包里放 `创建快捷方式.cmd`，让对方在自己机器上生成。
@@ -1065,22 +1069,28 @@ release/
 ### 重新打包（三步）
 
 ```powershell
-# 1) 同步源码到包目录（保持 md5 一致，别手改包里的副本）
+# 0) 新版本：复制上一版目录做骨架（记得删掉旧启动器与旧版本残留）
 cd "D:\AppData\token消耗面板"
-$R = "release\TokenPocket-1.1.6"
+$R = "release\TokenPocket-1.2.3"
+Copy-Item "release\TokenPocket-1.1.6" $R -Recurse
+
+# 1) 同步源码到包目录（保持 md5 一致，别手改包里的副本）
 Copy-Item TokenPanel.ps1 $R -Force
 Copy-Item lib\QuotaCore.ps1,lib\ConfigWindow.ps1 "$R\lib" -Force
+New-Item -ItemType Directory "$R\lib\wb" -Force | Out-Null
+Copy-Item lib\wb\wb_query.js,lib\wb\grab_cookie.js "$R\lib\wb" -Force
 Copy-Item TokenPocket.vbs,start-token-pocket.cmd,debug-token-pocket.cmd,make-shortcut.ps1 $R -Force
+Copy-Item "创建快捷方式.cmd" $R -Force
 Copy-Item shot-dock.png,shot-dock-v.png,shot-dock-light.png,shot-panel.png,shot-config.png,shot-cfg-system.png "$R\截图" -Force
 
 # 2) 打包（用系统自带 cmdlet，不依赖 WinRAR）
-Compress-Archive -Path $R -DestinationPath "release\TokenPocket-1.1.6.zip" -Force
+Compress-Archive -Path $R -DestinationPath "release\TokenPocket-1.2.3.zip" -Force
 
-# 3) 冒烟测试（必做，见下）
-powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1
+# 3) 冒烟测试（必做，见下；-Version 跟包名一致）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version 1.2.3
 ```
 
-**`smoke-release.ps1` 会做 19 项检查**：解压到全新临时目录 → 校验文件清单 →
+**`smoke-release.ps1` 会做 22 项检查**（v1.2.3 起含 lib\wb 两个 JS 与 .browser-profile 排除）：解压到全新临时目录 → 校验文件清单 →
 确认不含 `config.json` → 从新目录启动 → 验证进程/窗口/置顶（`WS_EX_TOPMOST`）→
 校验日志版本号 → 生成 `.lnk` 并确认指向新目录 → 清理。
 
