@@ -277,6 +277,19 @@ $DOCK_LBL_H = 11      # 标签行高
 # 小于这个系数就不画账户名：51px 单元里标签只剩约 6px，糊成一团不如不画（用户确认方案 B）
 $DOCK_LBL_MIN_SCALE = 0.9
 
+# ---- 折叠态排版（v1.1.4，方案 B）----
+# 这些以前散落在 Draw-Ring / Draw-MoneyRing 里写死，抽成常量便于统一调整
+$DOCK_PEN      = 2.0    # 圆环笔宽：用量环与余额环共用（用户要求两者一致）
+$NUM_SIZE      = 15     # 中心数字字号（逻辑像素，绘制时再乘 DS）
+$NUM_SIZE_3    = 11     # 三位数（100%）字号
+$PCT_RATIO     = 0.75   # 百分号字号 = 数字字号 × 该比例
+$PCT_DROP      = 2      # 百分号相对数字的下沉量（视觉上落在右下角）
+$PCT_GAP       = 0.0    # 数字与百分号的间距；0 = 贴齐，负值会挤压（旧版 -2 太挤）
+$DOCK_LBL_SIZE = 8      # 账户名字号
+# 垂直居中修正系数：TextRenderer 的 VerticalCenter 对齐的是「行框」，而数字没有下伸部，
+# 行框下半截的空白把墨迹顶低约 0.075×字号。该系数由 measure-center.ps1 用亮度加权质心标定。
+$CENTER_FIX    = 0.075
+
 # DPI 缩放因子：在窗口句柄创建后赋值（150% 屏 → 1.5）
 $script:Scale = 1.0
 
@@ -399,7 +412,7 @@ function Draw-Ring {
     param($G, [single]$Cx, [single]$Cy, [int]$Pct, [string]$ColorHex, [string]$Text)
 
     $r = DS $RING_R
-    $penW = DS 4
+    $penW = DS $DOCK_PEN
     $box = [single](($r - $penW / 2) * 2)
     $bx = $Cx - $box / 2
     $by = $Cy - $box / 2
@@ -429,41 +442,43 @@ function Draw-Ring {
         $gl.Dispose()
     }
 
-    # 中心数字 + 小号 %（腾讯管家样式：数字大、百分号小且靠下）
-    # 字号 +14%（14→16）：68px 单元里圆环只有 40px，原字号在环里显得发飘
-    # 3 位数（100）降到 12，否则会顶到环内壁
-    $fs = DS 16
-    if ($Text.Length -ge 3) { $fs = DS 12 }
-    $fontNum = New-Object System.Drawing.Font 'Segoe UI', ([single]$fs), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    # 中心数字 + 百分号（方案 B：数字 15 SemiBold，% 放大到 0.75 且间距归零）
+    $fs = DS $NUM_SIZE
+    if ($Text.Length -ge 3) { $fs = DS $NUM_SIZE_3 }
+    $fontNum = New-Object System.Drawing.Font 'Segoe UI Semibold', ([single]$fs), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    # 垂直居中修正：VerticalCenter 对齐行框，数字无下伸部 → 墨迹比圆心低 CENTER_FIX×字号
+    $dyNum = [int][Math]::Round($fs * $CENTER_FIX)
 
     $flagsM = [System.Windows.Forms.TextFormatFlags]::NoPadding
     $flagsC = $flagsM -bor [System.Windows.Forms.TextFormatFlags]::VerticalCenter
 
     if ($Pct -lt 0) {
-        $rN = New-Object System.Drawing.Rectangle ([int]($Cx - $r)), ([int]($Cy - $r)), ([int]($r * 2)), ([int]($r * 2))
+        $rN = New-Object System.Drawing.Rectangle ([int]($Cx - $r)), ([int]($Cy - $r - $dyNum)), ([int]($r * 2)), ([int]($r * 2))
         [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $fontNum, $rN,
             (C $Theme.RingText), ($flagsC -bor [System.Windows.Forms.TextFormatFlags]::HorizontalCenter))
         $fontNum.Dispose()
         return
     }
 
-    $fsPct = [int][Math]::Round($fs * 0.62)
-    $fontPct = New-Object System.Drawing.Font 'Segoe UI', ([single]$fsPct), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    $fsPct = [int][Math]::Round($fs * $PCT_RATIO)
+    $fontPct = New-Object System.Drawing.Font 'Segoe UI Semibold', ([single]$fsPct), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    $dyPct = [int][Math]::Round($fsPct * $CENTER_FIX)
     # 用 GenericTypographic 测量：不含额外 padding，宽度最接近实际渲染
     $sfM = [System.Drawing.StringFormat]::GenericTypographic
     $numW = [int][Math]::Ceiling($G.MeasureString($Text, $fontNum, 1000, $sfM).Width)
     $pctW = [int][Math]::Ceiling($G.MeasureString('%', $fontPct, 1000, $sfM).Width)
 
-    # MeasureString 对 Bold 字体含约 2 逻辑像素的 overhang，这里扣掉，否则 % 会离数字太远
-    $gap = -(DS 2)
+    # 间距由 $PCT_GAP 控制：0 = 贴齐。旧版写死 -(DS 2) 是给 Bold 补 overhang，
+    # 换 SemiBold 后字形右侧留白变小，那个补偿反而变成挤压，用户明确要求归零。
+    $gap = [int][Math]::Round((DS $PCT_GAP))
     $totalW = $numW + $gap + $pctW
     $sx = [int]($Cx - $totalW / 2)
 
-    $rNum = New-Object System.Drawing.Rectangle $sx, ([int]($Cy - $r)), $numW, ([int]($r * 2))
+    $rNum = New-Object System.Drawing.Rectangle $sx, ([int]($Cy - $r - $dyNum)), $numW, ([int]($r * 2))
     [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $fontNum, $rNum, (C $Theme.RingText), $flagsC)
 
-    # % 往下沉 3px，视觉上落在数字右下角
-    $rPct = New-Object System.Drawing.Rectangle ($sx + $numW + $gap), ([int]($Cy - $r + (DS 3))), ($pctW + (DS 2)), ([int]($r * 2))
+    # % 下沉 PCT_DROP，视觉上落在数字右下角
+    $rPct = New-Object System.Drawing.Rectangle ($sx + $numW + $gap), ([int]($Cy - $r + (DS $PCT_DROP) - $dyPct)), ($pctW + (DS 2)), ([int]($r * 2))
     [System.Windows.Forms.TextRenderer]::DrawText($G, '%', $fontPct, $rPct, (C $Theme.RingText), $flagsC)
 
     $fontNum.Dispose(); $fontPct.Dispose()
@@ -474,8 +489,10 @@ function Draw-MoneyRing {
     param($G, [single]$Cx, [single]$Cy, [string]$Text, [string]$ColorHex)
 
     $r = DS $RING_R
-    # 比百分比圆环细一档（2 vs 4），一眼能区分「这是余额，不是用量」
-    $penW = DS 2
+    # 笔宽与用量环统一（用户明确要求）。原来这里故意用 2 让余额环更细以便区分，
+    # 但两个环并排时粗细不一致会显得「没对齐」，改成共用 $DOCK_PEN。
+    # 区分手段改为：余额环不画进度弧（整圈实线）+ 内容是金额。
+    $penW = DS $DOCK_PEN
     $box = [single](($r - $penW / 2) * 2)
     $bx = [single]($Cx - $box / 2)
     $by = [single]($Cy - $box / 2)
@@ -501,13 +518,15 @@ function Draw-MoneyRing {
     # 金额字号按长度自适应，保证不撑破圆环
     $fs = DS (Get-MoneyFontPx $Text)
     $font = New-Object System.Drawing.Font 'Segoe UI', ([single]$fs), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    # 和用量环同样的垂直居中修正
+    $dyM = [int][Math]::Round($fs * $CENTER_FIX)
     $flags = [System.Windows.Forms.TextFormatFlags]::NoPadding -bor
              [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor
              [System.Windows.Forms.TextFormatFlags]::HorizontalCenter -bor
              [System.Windows.Forms.TextFormatFlags]::NoPrefix
     # 文本框比圆环略宽一点（负号/¥ 容易贴边），靠 Ellipsis 兜底
     $pad = [int](DS 3)
-    $rect = New-Object System.Drawing.Rectangle ([int]($Cx - $r - $pad)), ([int]($Cy - $r)), ([int](($r + $pad) * 2)), ([int]($r * 2))
+    $rect = New-Object System.Drawing.Rectangle ([int]($Cx - $r - $pad)), ([int]($Cy - $r - $dyM)), ([int](($r + $pad) * 2)), ([int]($r * 2))
     [System.Windows.Forms.TextRenderer]::DrawText($G, $Text, $font, $rect, (C $ColorHex), $flags)
     $font.Dispose()
 }
@@ -596,7 +615,7 @@ function Draw-Dock {
         return
     }
 
-    $fontLbl = New-Object System.Drawing.Font 'Microsoft YaHei UI', ([single](DS 9)), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    $fontLbl = New-Object System.Drawing.Font 'Microsoft YaHei UI', ([single](DS $DOCK_LBL_SIZE)), ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
     $ringR = DS $RING_R
     $unitW = DS $DOCK_W
     $unitH = DS $DOCK_H
@@ -789,26 +808,36 @@ if ($SelfTest) {
     Write-Host ("  界面缩放 = " + $script:Cfg.uiScale)
 
     # 折叠态文字是否塞得进圆环（量化，不靠肉眼）
-    # 圆环内径 = (R - 描边) * 2；文字宽 = 数字宽 + %宽 - gap
-    Write-Host "=== 折叠态文字是否溢出圆环（逻辑像素）==="
+    # 圆环内径 = (R - 笔宽) * 2；文字宽 = 数字宽 + %宽 + 间距
+    # 判定用「填充率」：<50% 显得飘，>85% 显得挤，理想区间 60~80%
+    Write-Host "=== 折叠态文字填充率（逻辑像素）==="
+    Write-Host ("  笔宽 " + $DOCK_PEN + " / 数字 " + $NUM_SIZE + " SemiBold / %比例 " + $PCT_RATIO + " / 间距 " + $PCT_GAP)
     $bmpM = New-Object System.Drawing.Bitmap 1, 1
     $gM = [System.Drawing.Graphics]::FromImage($bmpM)
     $sfM = [System.Drawing.StringFormat]::GenericTypographic
-    $innerD = ($RING_R - 4) * 2
+    $innerD = ($RING_R - $DOCK_PEN) * 2
     $pass = 0; $total = 0
     foreach ($ds in @(@{ N = '小'; V = 0.75 }, @{ N = '默认'; V = 1.0 }, @{ N = '大'; V = 1.25 })) {
         $inner = $innerD * $ds.V
-        foreach ($c in @(@{ T = '58'; F = 16 }, @{ T = '100'; F = 12 }, @{ T = '5'; F = 16 })) {
+        $cases = @(
+            @{ T = '58';  F = $NUM_SIZE },
+            @{ T = '100'; F = $NUM_SIZE_3 },
+            @{ T = '5';   F = $NUM_SIZE }
+        )
+        foreach ($c in $cases) {
             $fsN = [single]($c.F * $ds.V)
-            $fN = New-Object System.Drawing.Font 'Segoe UI', $fsN, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-            $fP = New-Object System.Drawing.Font 'Segoe UI', ([single]($fsN * 0.62)), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+            $fsP = [single]($fsN * $PCT_RATIO)
+            $fN = New-Object System.Drawing.Font 'Segoe UI Semibold', $fsN, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+            $fP = New-Object System.Drawing.Font 'Segoe UI Semibold', $fsP, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
             $wN = $gM.MeasureString($c.T, $fN, 1000, $sfM).Width
             $wP = $gM.MeasureString('%', $fP, 1000, $sfM).Width
-            $tot = $wN + $wP - (2 * $ds.V)      # 减去 Draw-Ring 里扣掉的 overhang
-            $ok = ($tot -le $inner)
+            $tot = $wN + $wP + ($PCT_GAP * $ds.V)
+            $fill = $tot / $inner * 100
+            $ok = ($fill -le 85)
             $total++; if ($ok) { $pass++ }
             Write-Host ("  [" + $(if ($ok) { 'OK  ' } else { 'FAIL' }) + "] " + $ds.N.PadRight(4) +
-                " 「" + $c.T + "%」宽 " + [Math]::Round($tot, 1) + " / 内径 " + [Math]::Round($inner, 1))
+                " 「" + $c.T + "%」宽 " + [Math]::Round($tot, 1) + " / 内径 " + [Math]::Round($inner, 1) +
+                "  填充 " + [Math]::Round($fill, 0) + "%" + $(if ($fill -lt 50 -and $c.T.Length -ge 2) { '  (偏飘)' } else { '' }))
             $fN.Dispose(); $fP.Dispose()
         }
     }

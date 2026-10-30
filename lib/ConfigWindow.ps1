@@ -1446,16 +1446,16 @@ function Show-ConfigWindow {
         try { $mainOp = $script:MainForm.Opacity } catch { }
         CHK '点「100%」→ 窗口回到 1.0' ([Math]::Abs($mainOp - 1.0) -lt 0.01) ('Opacity=' + $mainOp)
 
-        # 2c) 取消回滚：点 30% 后走取消路径，必须回到打开时的值（用户特别要求的稳定性）
-        $opBefore = 1.0
-        try { $opBefore = $script:MainForm.Opacity } catch { }
+        # 2c) 取消回滚：点 30% 后走取消路径，必须回到「窗口打开时的值」。
+        # 基准必须是 $script:OpacityOrig（打开时从配置读的），不能读当前 MainForm.Opacity ——
+        # 上面刚点过 100%，当前值是 1.0，拿它当基准会误判成失败（踩过）。
         $opacityButtons['0.3'].PerformClick()
         $opMid = 1.0
         try { $opMid = $script:MainForm.Opacity } catch { }
         Restore-DockPreview
         $opAfter = 1.0
         try { $opAfter = $script:MainForm.Opacity } catch { }
-        CHK '取消回滚：30% 恢复原值' (([Math]::Abs($opMid - 0.3) -lt 0.01) -and ([Math]::Abs($opAfter - $opBefore) -lt 0.01)) ('点后 ' + $opMid + ' → 回滚 ' + $opAfter)
+        CHK '取消回滚：30% 恢复打开时的值' (([Math]::Abs($opMid - 0.3) -lt 0.01) -and ([Math]::Abs($opAfter - $script:OpacityOrig) -lt 0.01)) ('点后 ' + $opMid + ' → 回滚 ' + $opAfter + '（打开时 ' + $script:OpacityOrig + '）')
 
         # 3) 开机自启（真实写注册表，测完复原）
         $before = if (Get-Command Get-AutostartEnabled -ErrorAction SilentlyContinue) { Get-AutostartEnabled } else { $false }

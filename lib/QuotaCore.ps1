@@ -6,7 +6,7 @@
 # 应用身份（改名/改版本只需动这三行）
 # ============================================================
 $script:AppName    = 'Token Pocket'
-$script:AppVersion = '1.1.3'
+$script:AppVersion = '1.1.4'
 $script:AppChannel = '内测版'
 $script:AppId      = 'TokenPocket'
 # UserAgent 不能带空格，单独给一个
