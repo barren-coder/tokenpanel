@@ -954,8 +954,9 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | **v1.1.4** | 10-30 12:20 | 排版精修（方案 B）：笔宽 4→**2**（用量环与余额环统一）、数字 16 Bold→**15 SemiBold**、% 比例 0.62→**0.75**、% 间距 −2→**0**、账户名 9→**8**、**数字垂直居中修正**（0.075×字号）；排版参数全部抽成常量 |
 | **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPocket.vbs` 无窗口启动器 + `Token Pocket.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
 | **v1.1.6** | 10-30 13:55 | 修复**悬浮窗不置顶**（`Form.TopMost` 未落到 `WS_EX_TOPMOST`，改为显式读-改-写样式位 + `SetWindowPos(HWND_TOPMOST)`，并在 Show / Hide→Show / 改透明度后重新断言）；新增 `diag-topmost.ps1` 探针 |
+| **v1.2.0** | 10-30 16:00 | **WorkBuddy 积分接入**（§15）：official 模板新增 workbuddy 供应商（无头 Chrome 页面内查询，绕 TLS 指纹墙）；配置页短名右侧「授权登录」按钮 + 授权状态提示；30 分钟缓存 + 401 冷却 1 小时 + 文件锁 + 孤儿 chrome 清理；新阈值 credits ≤20 红 / ≤50 黄、金额 ≤5 红（moneyCrit 进配置）；折叠态积分类圆圈只显数字。测试资产：`wb_smoke_config.ps1` / `wb_expand_shot.ps1` / `wb_shot_panel.ps1` / `wb_restart_and_shots.ps1` |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.1.6`。
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.0`。
 
 ---
 
@@ -1153,21 +1154,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1
 
 短命进程设计：查完 `taskkill /T /F` 整棵树，内存归零，连续 5 次验证无残留。382MB 是 Chromium 多进程架构的地板价，再压空间有限。
 
-### 15.3 接入方案（待办）
+### 15.3 接入实现（✅ 2026-10-30 v1.2.0 已完成）
 
-面板新增"外部命令"型数据源，调 `node wb_query.js --json`，解析 `TotalCredits`。按顺序做：
+全部落地，验证记录见 §15.5。结构如下：
 
-1. `QuotaCore.ps1` 新增模板 `workbuddy`：不走 `Invoke-Http`，改用 `Start-Process node -ArgumentList 'wb_query.js','--json'` 拿 stdout JSON。node 路径兜底 `C:\Users\barren.wu\.workbuddy\binaries\node\versions\22.22.2-6\node.exe`，先 `where node` 探测。
-2. 子进程超时 30 秒强杀：`taskkill /PID <pid> /T /F`。
-3. **孤儿兜底（必做，唯一真实的内存风险）**：每次查询前按 profile 路径（`workbuddy-credits-demo\.browser-profile`）清理残留 chrome.exe；加文件锁防并发刷新。面板强杀子进程时 Chrome 树不会被连带清理，会残留 ~380MB。
-4. **401 处理**：输出里 status 非 200 = 登录态过期，该账户显示"需重新登录（双击 获取Cookie.cmd）"，不要显示旧数据。
-5. 显示字段：主数值 `data.TotalCredits`（字符串，注意 `TryParse`），副显示 `SubscriptionPackageName`。余额类账户走 `kind='money'` 的文本块绘制（参考 §8.5），不画圆环。
-6. **刷新间隔 ≥30 分钟**：每次刷新起一个 Chrome（380MB / 5 秒 CPU 尖峰），5 分钟一次用户能感知。查询放后台线程，别卡面板绘制。
+1. **脚本**：`lib\wb\wb_query.js`（无头查询）+ `lib\wb\grab_cookie.js`（授权登录），登录态 profile 在 `lib\wb\.browser-profile`（**等同账号权限，不进 git、不外传**）。
+2. **数据层**（`lib\QuotaCore.ps1`）：`Invoke-WorkBuddy` / `Parse-WorkBuddy` / `Get-Save-WorkBuddyState` / `Start-WorkBuddyAuth` / `Complete-WorkBuddyAuth` / `Find-NodeExe`。运行态存 `%APPDATA%\TokenPocket\wb_state.json` + `wb_last.json`（**不能把查询 JSON 塞进 ConvertTo-Json——PS 5.1 会把 >1KB 字符串包装成 `{"value":...}` 对象**）。
+3. **护栏**：30 分钟缓存（`$script:WbCacheMin`）、401 冷却 1 小时（`$script:WbCooldownH`）、文件锁 `wb-query.lock`（PID 存活检查）、孤儿 chrome/msedge 清理（按 `lib\wb` 命令行过滤）、30 秒超时 taskkill `/T /F`、启动前 Remove 四个代理环境变量。
+4. **已踩坑**：① PS 5.1 `Start-Process -PassThru` 的 `ExitCode` 偶发为 null → 以 stdout 文件为准；② `Start-Process` 遇到大小写重复的 `HTTP_PROXY` 环境变量直接抛错。
+5. **显示**：`Unit='credits'` 上色档 ≤20 红 / ≤50 黄 / 其余青；折叠态积分类圆圈只显数字（`Get-AccountMoneyShort`），展开态显示完整 "2052.02 credits" + 体验版 + 签到行。
+6. **用户配置**：WB 账户已加入 config.json（排第一位）；旧配置的 `moneyCrit` 由 `Repair-Config` 自动补齐。
 
 ### 15.4 用户侧入口（已可用）
 
-- `获取Cookie.cmd`：登录一次，登录态存 `.browser-profile`，长期有效
-- `查询积分.cmd`：手动查询，双击即用
+- **配置页授权（v1.2.0 起主入口）**：官方模板选 WorkBuddy → 短名右侧「授权登录」→ 弹浏览器登录一次即永久（登录态过期会有提示，重授权即可）
+- `查询积分.cmd`（demo 目录）：手动查询，双击即用
 
 **安全**：`.browser-profile`（内含登录态）等同账号权限，不进 git、不外传、不写日志。
 

@@ -6,17 +6,27 @@
 # 应用身份（改名/改版本只需动这三行）
 # ============================================================
 $script:AppName    = 'Token Pocket'
-$script:AppVersion = '1.1.6'
+$script:AppVersion = '1.2.0'
 $script:AppChannel = '内测版'
 $script:AppId      = 'TokenPocket'
 # UserAgent 不能带空格，单独给一个
 $script:UserAgent  = 'TokenPocket/' + $script:AppVersion
 
-$script:CoreVersion = '4.0'
+$script:CoreVersion = '4.1'
 $script:ConfigDir   = Join-Path $env:APPDATA $script:AppId
 $script:ConfigPath  = Join-Path $script:ConfigDir 'config.json'
 $script:LogPath     = Join-Path $script:ConfigDir 'app.log'
 $script:HttpTimeout = 15      # 秒，由配置里的 timeout 覆盖
+
+# WorkBuddy 积分查询（无头 Chrome 页面内请求，见 lib\wb\wb_query.js 头注释）
+$script:WbDir       = Join-Path $PSScriptRoot 'wb'
+$script:WbStatePath = Join-Path $script:ConfigDir 'wb_state.json'   # 运行态：时间戳/冷却/授权时间
+$script:WbLastPath  = Join-Path $script:ConfigDir 'wb_last.json'    # 上次原始查询输出（单独存文件：
+                                                                    # PS 5.1 的 ConvertTo-Json 会把超长字符串
+                                                                    # 包装成 {"value":...} 对象，不能塞状态 JSON）
+$script:WbCacheMin  = 30        # 查询结果缓存分钟数（不再短于此间隔重复拉起 Chrome）
+$script:WbCooldownH = 1         # 登录态过期（401/403）后的冷却小时数
+$script:WbTimeoutMs = 30000     # 单次查询超时（毫秒），超时强杀进程树
 
 # 旧目录（TokenPanel）自动迁移到新目录（TokenPocket）：
 # 只复制不删除，用户原有账户与密钥不丢
@@ -75,7 +85,7 @@ function Get-TemplateDefs {
         @{ Id = 'newapi';    Label = 'NewAPI';    Hint = 'New API 中转站：Access Token + User ID，读取 quota / used_quota' }
         @{ Id = 'tokenplan'; Label = 'Token Plan'; Hint = '内置套餐额度：选供应商自动填地址与解析器，显示 5 小时 / 7 天窗口' }
         @{ Id = 'balance';   Label = '账户余额'; Hint = '官方钱包余额：DeepSeek / 硅基流动 / OpenRouter / 阶跃星辰' }
-        @{ Id = 'official';  Label = '官方';      Hint = '读取本机 CLI 的 OAuth 凭据，调用官方订阅额度接口（需先用 CLI 登录）' }
+        @{ Id = 'official';  Label = '官方';      Hint = '官方 agent 额度：Claude / Codex 读本机 CLI 的 OAuth，WorkBuddy 点「授权登录」后查询积分' }
     )
 }
 
@@ -389,7 +399,22 @@ function Get-ExtractorPreview {
         }
         default {
             # official
-            if ($Type -eq 'claude') {
+            if ($Type -eq 'workbuddy') {
+                $a = @(
+                    '// 官方模板（WorkBuddy）：无头 Chrome 页面内 fetch（网关按 TLS 指纹放行浏览器）',
+                    '({',
+                    '  request: {',
+                    '    url: "https://www.workbuddy.cn/billing/meter/get-user-resource-summary",',
+                    '    method: "POST", body: "{}"   // 经 Chromium 网络栈发出',
+                    '  },',
+                    '  extractor: function (r) {',
+                    '    return { isValid: r.code === 0,',
+                    '             remaining: parseFloat(r.data.TotalCredits),',
+                    '             unit: "credits", planName: r.data.SubscriptionPackageName }',
+                    '  }',
+                    '})'
+                )
+            } elseif ($Type -eq 'claude') {
                 $a = @(
                     '// 官方模板：不使用 {{apiKey}}，Token 来自 ~/.claude/.credentials.json',
                     '({',
@@ -482,7 +507,10 @@ function Get-ProviderPresets {
                Hint = '读 ~/.claude/.credentials.json，需先用 Claude Code 登录' },
             @{ Id = 'codex';  Label = 'Codex'; Short = 'Codex'
                Url = 'https://chatgpt.com/backend-api/wham/usage'; Auth = 'oauth'
-               Hint = '读 ~/.codex/auth.json（auth_mode=chatgpt），需先用 Codex 登录' }
+               Hint = '读 ~/.codex/auth.json（auth_mode=chatgpt），需先用 Codex 登录' },
+            @{ Id = 'workbuddy'; Label = 'WorkBuddy'; Short = 'WB'
+               Url = 'https://www.workbuddy.cn'; Auth = 'wbprofile'
+               Hint = '无头 Chrome 页面内查询；先点「授权登录」一次，之后 30 分钟缓存自动刷新' }
         )
         general = @(
             @{ Id = 'general'; Label = '通用余额'; Short = '余额'; Url = ''; Auth = 'bearer'
@@ -565,6 +593,7 @@ function Get-DefaultConfig {
         dockScale      = 1.0               # 0.75 小 / 1.0 默认 / 1.25 大
         opacity        = 1.0               # 悬浮窗不透明度：1.0 / 0.7 / 0.5 / 0.3
         moneyWarn      = 20                # 余额低于该值显示黄色（负数一律红色）
+        moneyCrit      = 5                 # 余额低于等于该值显示红色（2026-10-30 定案）
     }
 }
 
@@ -722,7 +751,8 @@ function New-Tier {
         $ResetMs,
         [int]$Status = 1,
         [string]$Display = '',
-        $Money = $null          # 金额类账户的数值（负数表示欠费/透支），百分比账户为 $null
+        $Money = $null,         # 金额类账户的数值（负数表示欠费/透支），百分比账户为 $null
+        [string]$Unit = ''      # 'credits' = WorkBuddy 积分类（阈值 ≤20 红 / ≤50 黄，区别于 ¥ 金额的 5/20）
     )
     if ($Status -eq 3) { return $null }
     $reset = $null
@@ -730,7 +760,7 @@ function New-Tier {
         try { $reset = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ResetMs).ToLocalTime().ToString('o') } catch { }
     }
     if (-not $Display) { $Display = "$Remain%" }
-    return [pscustomobject]@{ Name = $Name; Remain = $Remain; ResetAt = $reset; Status = $Status; Display = $Display; Money = $Money }
+    return [pscustomobject]@{ Name = $Name; Remain = $Remain; ResetAt = $reset; Status = $Status; Display = $Display; Money = $Money; Unit = $Unit }
 }
 
 function Get-JsonPath {
@@ -900,6 +930,230 @@ function Parse-Custom {
     }
     return @{ Ok = $true; Tiers = @($t) }
 }
+
+# ============================================================
+# WorkBuddy 积分（official 模板 type=workbuddy）
+# 网关按 TLS 指纹拦截普通 HTTP 客户端（同 cookie 下 curl 一律 401），
+# 必须经无头 Chrome 在页面上下文里发请求（lib\wb\wb_query.js，原理见其头注释）。
+# 运行态（结果缓存/冷却/授权时间）独立存 %APPDATA%\TokenPocket\wb_state.json，
+# 不动 config.json 结构，配置三处同步逻辑不受影响。
+# ============================================================
+function Get-WorkBuddyState {
+    $st = @{ lastOkAt = $null; lastData = ''; cooldownUntil = $null; authAt = $null }
+    if (Test-Path $script:WbStatePath) {
+        try {
+            $j = Get-Content $script:WbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $st.lastOkAt = $j.lastOkAt; $st.cooldownUntil = $j.cooldownUntil; $st.authAt = $j.authAt
+        } catch { }
+    }
+    if (Test-Path $script:WbLastPath) {
+        try { $st.lastData = Get-Content $script:WbLastPath -Raw -Encoding UTF8 } catch { }
+    }
+    return $st
+}
+
+function Save-WorkBuddyState {
+    param($State)
+    try {
+        if (-not (Test-Path $script:ConfigDir)) {
+            New-Item -ItemType Directory -Path $script:ConfigDir -Force | Out-Null
+        }
+        $json = [pscustomobject]@{
+            lastOkAt      = $State.lastOkAt
+            cooldownUntil = $State.cooldownUntil
+            authAt        = $State.authAt
+        } | ConvertTo-Json -Depth 4
+        [System.IO.File]::WriteAllText($script:WbStatePath, $json, [System.Text.Encoding]::UTF8)
+        # 原始查询输出单独存文件，绕开 ConvertTo-Json 长字符串包装 bug
+        if ($State.lastData) {
+            [System.IO.File]::WriteAllText($script:WbLastPath, [string]$State.lastData, [System.Text.Encoding]::UTF8)
+        } elseif (Test-Path $script:WbLastPath) {
+            Remove-Item $script:WbLastPath -Force -ErrorAction SilentlyContinue
+        }
+    } catch { Write-CoreLog ('wb_state 写入失败: ' + $_.Exception.Message) }
+}
+
+function Test-WbProfileReady {
+    return (Test-Path (Join-Path $script:WbDir '.browser-profile'))
+}
+
+function Find-NodeExe {
+    $cmd = Get-Command node -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    # 兜底：WorkBuddy 自带的 managed node（PATH 里没有 node 时）
+    $wbNode = Join-Path $env:USERPROFILE '.workbuddy\binaries\node'
+    if (Test-Path $wbNode) {
+        $n = Get-ChildItem $wbNode -Recurse -Filter node.exe -ErrorAction SilentlyContinue |
+             Select-Object -First 1
+        if ($n) { return $n.FullName }
+    }
+    return $null
+}
+
+# 解析 wb_query.js --json 的输出（四接口聚合 JSON）
+function Parse-WorkBuddy {
+    param([string]$Body)
+    if (-not $Body) { return @{ Ok = $false; Error = '查询输出为空' } }
+    $d = $null
+    try { $d = $Body | ConvertFrom-Json } catch { return @{ Ok = $false; Error = '查询输出不是 JSON' } }
+    $sum = $d.'/billing/meter/get-user-resource-summary'
+    if (-not $sum) { return @{ Ok = $false; Error = '输出缺少积分汇总接口' } }
+    if ($sum.status -in 401, 403) {
+        return @{ Ok = $false; AuthFail = $true; Error = "登录态过期 (HTTP $($sum.status))，请重新授权" }
+    }
+    if ($sum.status -ne 200) { return @{ Ok = $false; Error = "积分汇总接口 HTTP $($sum.status)" } }
+    $sd = $null
+    try { $sd = ($sum.body | ConvertFrom-Json).data } catch { }
+    if (-not $sd) { return @{ Ok = $false; Error = '积分汇总响应无 data 字段' } }
+    $credits = 0.0
+    [void][double]::TryParse([string]$sd.TotalCredits, [ref]$credits)
+    $plan = if ($sd.SubscriptionPackageName) { [string]$sd.SubscriptionPackageName } else { '积分余额' }
+    # Unit='credits'：折叠态阈值走积分档（≤20 红 / ≤50 黄），区别于 ¥ 金额档（≤5 红 / ≤20 黄）
+    $tiers = @((New-Tier -Name $plan -Remain -1 -ResetMs 0 `
+        -Display ('{0} credits' -f $credits.ToString('0.##')) -Money $credits -Unit 'credits'))
+    # 签到状态作为第二条（展开态可见）
+    $ck = $d.'/billing/meter/checkin-status'
+    if ($ck -and $ck.status -eq 200) {
+        try {
+            $cd = ($ck.body | ConvertFrom-Json).data
+            if ($cd) {
+                $cdisp = if (-not $cd.active) { '活动未开启' }
+                         elseif ($cd.today_checked_in) { '今日已签到' }
+                         else { '今日未签到' }
+                $t = New-Tier -Name '签到' -Remain -1 -ResetMs 0 -Display $cdisp
+                if ($t) { $tiers += $t }
+            }
+        } catch { }
+    }
+    return @{ Ok = $true; Tiers = $tiers }
+}
+
+function Invoke-WorkBuddy {
+    param($Provider)
+
+    $state = Get-WorkBuddyState
+    $now = Get-Date
+
+    # ---- 冷却中：登录态过期后 1 小时内不再拉起 Chrome ----
+    if ($state.cooldownUntil) {
+        $cd = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$state.cooldownUntil, [ref]$cd) -and $cd -gt $now) {
+            return @{ Ok = $false; AuthFail = $true; Error = ('登录态过期，冷却至 {0:HH:mm}，请重新授权' -f $cd) }
+        }
+    }
+
+    # ---- 缓存命中：30 分钟内直接复用上次结果，不拉 Chrome ----
+    if ($state.lastData -and $state.lastOkAt) {
+        $last = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$state.lastOkAt, [ref]$last) -and
+            (($now - $last).TotalMinutes -lt $script:WbCacheMin)) {
+            try { return (Parse-WorkBuddy -Body $state.lastData) } catch { }
+        }
+    }
+
+    if (-not (Test-WbProfileReady)) {
+        return @{ Ok = $false; AuthFail = $true; Error = '未授权：请在配置页点「授权登录」' }
+    }
+    $node = Find-NodeExe
+    if (-not $node) { return @{ Ok = $false; Error = '未找到 node.exe，无法运行查询脚本' } }
+
+    # ---- 并发护栏：文件锁（PID 存活检查）----
+    $lockFile = Join-Path $script:ConfigDir 'wb-query.lock'
+    if (Test-Path $lockFile) {
+        $lockPid = 0
+        try { $lockPid = [int](Get-Content $lockFile -Raw) } catch { }
+        if ($lockPid -gt 0 -and (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) {
+            return @{ Ok = $false; Error = '上一次 WorkBuddy 查询仍在运行，本轮跳过' }
+        }
+    }
+    [System.IO.File]::WriteAllText($lockFile, [string]$PID)
+    try {
+        # 孤儿兜底：只清挂着我们自己 profile 目录的残留 chrome / msedge
+        foreach ($exeName in @('chrome.exe', 'msedge.exe')) {
+            $stale = @(Get-CimInstance Win32_Process -Filter "Name='$exeName'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -like ('*' + $script:WbDir + '*') })
+            foreach ($p in $stale) {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        # 环境变量重复键坑：系统注入的 HTTP_PROXY/http_proxy 大小写重复会让
+        # Start-Process -RedirectStandardOutput 直接报错（HANDOFF §15）
+        foreach ($name in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
+            if ($null -ne [Environment]::GetEnvironmentVariable($name)) {
+                Remove-Item ("Env:" + $name) -ErrorAction SilentlyContinue
+            }
+        }
+
+        $outFile = Join-Path $script:ConfigDir 'wb-out.json'
+        $errFile = Join-Path $script:ConfigDir 'wb-err.txt'
+        $proc = Start-Process -FilePath $node `
+            -ArgumentList @('wb_query.js', '--json') `
+            -WorkingDirectory $script:WbDir -NoNewWindow -PassThru `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        if (-not $proc.WaitForExit($script:WbTimeoutMs)) {
+            Start-Process -FilePath 'taskkill' -ArgumentList @('/PID', [string]$proc.Id, '/T', '/F') -WindowStyle Hidden -Wait
+            return @{ Ok = $false; Error = 'WorkBuddy 查询超时 30 秒，已终止' }
+        }
+        $raw = ''
+        try { $raw = Get-Content $outFile -Raw -Encoding UTF8 } catch { }
+        # PS 5.1 的 Start-Process -PassThru 偶发读不到 ExitCode（实测为 null 但输出正常），
+        # 所以判定以输出文件为准，退出码只做辅助
+        if ($proc.ExitCode -eq 2 -or ($null -eq $proc.ExitCode -and -not $raw)) {
+            return @{ Ok = $false; AuthFail = $true; Error = '未授权或登录态缺失，请在配置页点「授权登录」' }
+        }
+        if (-not $raw) {
+            return @{ Ok = $false; Error = ('查询无输出（退出码 ' + $proc.ExitCode + '）') }
+        }
+
+        $r = Parse-WorkBuddy -Body $raw
+        if ($r.Ok) {
+            $state.lastOkAt = $now.ToString('o')
+            $state.lastData = $raw
+            Save-WorkBuddyState $state
+        } elseif ($r.AuthFail) {
+            $state.cooldownUntil = $now.AddHours($script:WbCooldownH).ToString('o')
+            Save-WorkBuddyState $state
+        }
+        return $r
+    } finally {
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 授权登录：弹 headful Chrome 让用户登 WorkBuddy（grab_cookie.js 检测到登录态后自动关窗）
+# 返回进程对象，调用方轮询 HasExited；退出码 0 = 成功
+function Start-WorkBuddyAuth {
+    $node = Find-NodeExe
+    if (-not $node) { return $null }
+    foreach ($name in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
+        if ($null -ne [Environment]::GetEnvironmentVariable($name)) {
+            Remove-Item ("Env:" + $name) -ErrorAction SilentlyContinue
+        }
+    }
+    $outFile = Join-Path $script:ConfigDir 'wb-auth-out.txt'
+    $errFile = Join-Path $script:ConfigDir 'wb-auth-err.txt'
+    try {
+        return Start-Process -FilePath $node `
+            -ArgumentList @('grab_cookie.js') `
+            -WorkingDirectory $script:WbDir -NoNewWindow -PassThru `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+    } catch {
+        Write-CoreLog ('WorkBuddy 授权启动失败: ' + $_.Exception.Message)
+        return $null
+    }
+}
+
+# 授权成功后调用：记录授权时间、清冷却、清缓存（下一次查询拉新数据）
+function Complete-WorkBuddyAuth {
+    $state = Get-WorkBuddyState
+    $state.authAt = (Get-Date).ToString('o')
+    $state.cooldownUntil = $null
+    $state.lastData = ''
+    $state.lastOkAt = $null
+    Save-WorkBuddyState $state
+}
+
 
 # ============================================================
 # 官方 OAuth 凭据读取（Claude Code / Codex）
@@ -1108,6 +1362,11 @@ function Invoke-Provider {
 
     # ---------- 官方模板：Key 来自本机 OAuth，不用界面里的 API Key ----------
     if ($tpl -eq 'official') {
+        # WorkBuddy：无头 Chrome 页面内查询，不走 HTTP / OAuth token
+        if ($Provider.type -eq 'workbuddy') {
+            try { return Invoke-WorkBuddy -Provider $Provider }
+            catch { return @{ Ok = $false; Error = 'WorkBuddy 查询异常：' + $_.Exception.Message } }
+        }
         $tok = if ($Provider.type -eq 'claude') { Get-ClaudeOAuthToken } else { Get-CodexOAuthToken }
         if (-not $tok) {
             $hint = if ($Provider.type -eq 'claude') {
@@ -1249,6 +1508,7 @@ function Get-AllQuota {
                         reset_at = $_.ResetAt
                         display  = $_.Display
                         money    = $_.Money
+                        unit     = $_.Unit
                     }
                 })
             }

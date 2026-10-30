@@ -422,6 +422,10 @@ function Show-ConfigWindow {
     $rowName.Controls.Add($tbName)
     $tbShort = CW-Text -X 274 -Y 18 -W 160 -H 28
     $rowName.Controls.Add($tbShort)
+    # 授权登录按钮（2026-10-30 定案：放短名右边；当前仅 official/workbuddy 显示，未来官方 agent 可复用）
+    $btnAuth = CW-Btn -Text '授权登录' -X 444 -Y 18 -W 96 -H 28 -Kind 'ghost'
+    $btnAuth.Visible = $false
+    $rowName.Controls.Add($btnAuth)
     $rows['name'] = $rowName
 
     $rowPreset = New-Object System.Windows.Forms.Panel
@@ -902,6 +906,33 @@ function Show-ConfigWindow {
     }
 
     function Update-OfficialHint {
+        if ($script:CurType -eq 'workbuddy') {
+            # WorkBuddy：状态来自 wb_state.json + lib\wb\.browser-profile 是否存在
+            $btnAuth.Visible = $true
+            $st = Get-WorkBuddyState
+            if (-not (Test-WbProfileReady)) {
+                $lblOfficial.ForeColor = CC $CW.Am
+                $lblOfficial.Text = '✗ 未授权：点短名右侧「授权登录」，在弹出的浏览器里登录 WorkBuddy（只需一次）。'
+            } elseif ($st.cooldownUntil) {
+                $cd = [datetime]::MinValue
+                if ([datetime]::TryParse([string]$st.cooldownUntil, [ref]$cd) -and $cd -gt (Get-Date)) {
+                    $lblOfficial.ForeColor = CC $CW.Am
+                    $lblOfficial.Text = ('⚠ 登录态过期，冷却至 {0:HH:mm}。可点「授权登录」重新授权立即恢复。' -f $cd)
+                } else {
+                    $lblOfficial.ForeColor = CC $CW.Cy
+                    $lblOfficial.Text = '✓ 已授权。查询结果缓存 30 分钟，登录态过期会自动提示重新授权。'
+                }
+            } else {
+                $authLine = '✓ 已授权'
+                if ($st.authAt) {
+                    try { $authLine += ('（{0:yyyy-MM-dd HH:mm}）' -f ([datetime]$st.authAt)) } catch { }
+                }
+                $lblOfficial.ForeColor = CC $CW.Cy
+                $lblOfficial.Text = $authLine + '。查询结果缓存 30 分钟，无头 Chrome 后台查询（约 5 秒，不弹窗）。'
+            }
+            return
+        }
+        $btnAuth.Visible = $false
         $path = if ($script:CurType -eq 'claude') { '~/.claude/.credentials.json' } else { '~/.codex/auth.json' }
         $tok = if ($script:CurType -eq 'claude') { Get-ClaudeOAuthToken } else { Get-CodexOAuthToken }
         $lblOfficial.ForeColor = if ($tok) { CC $CW.Cy } else { CC $CW.Am }
@@ -912,6 +943,39 @@ function Show-ConfigWindow {
             '若用的是 API Key 方式，请改用 Token Plan 或自定义模板。'
         }
     }
+
+    # ---- WorkBuddy 授权登录（短名右侧按钮）：弹 headful Chrome，登录成功自动关窗 ----
+    $btnAuth.Add_Click({
+        if ($script:CurTpl -ne 'official' -or $script:CurType -ne 'workbuddy') { return }
+        $btnAuth.Enabled = $false
+        $statusText.ForeColor = CC $CW.Tx
+        $statusText.Text = '正在弹出浏览器，请在页面里登录 WorkBuddy（登录成功后窗口自动关闭）…'
+        $p = Start-WorkBuddyAuth
+        if (-not $p) {
+            $btnAuth.Enabled = $true
+            $statusText.ForeColor = CC $CW.Am
+            $statusText.Text = '授权启动失败：未找到 node.exe。'
+            return
+        }
+        $timer = New-Object System.Windows.Forms.Timer
+        $timer.Interval = 2000
+        $timer.Add_Tick({
+            if (-not $p.HasExited) { return }
+            $timer.Stop(); $timer.Dispose()
+            $btnAuth.Enabled = $true
+            # ExitCode 偶发读不到（PS 5.1），以 profile 是否就绪为准
+            if (($p.ExitCode -eq 0 -or $null -eq $p.ExitCode) -and (Test-WbProfileReady)) {
+                Complete-WorkBuddyAuth
+                Update-OfficialHint
+                $statusText.ForeColor = CC $CW.Cy
+                $statusText.Text = '✓ 授权成功。点「测试脚本」可立即查询积分。'
+            } else {
+                $statusText.ForeColor = CC $CW.Am
+                $statusText.Text = ('授权未完成（退出码 ' + $p.ExitCode + '），登录超时或窗口被关闭，可重试。')
+            }
+        })
+        $timer.Start()
+    })
 
     function Apply-TemplateLayout {
         param([string]$Tpl)
@@ -961,7 +1025,7 @@ function Show-ConfigWindow {
         Rebuild-Presets -Tpl $Id -CurId $script:CurType
         Apply-TemplateLayout -Tpl $Id
         Resize-ForPage
-        if ($Id -eq 'official') { Update-OfficialHint }
+        if ($Id -eq 'official') { Update-OfficialHint } else { $btnAuth.Visible = $false }
     }
 
     function Load-AccountToUI {

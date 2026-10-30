@@ -14,7 +14,7 @@ $tpls = Get-TemplateDefs
 Check "模板数量 = 6" ($tpls.Count -eq 6) ("实际 " + $tpls.Count)
 foreach ($t in $tpls) {
     $ps = @(Get-ProviderPresets -Tpl $t.Id)
-    $expect = @{ custom=1; general=1; newapi=1; tokenplan=4; balance=4; official=2 }[$t.Id]
+    $expect = @{ custom=1; general=1; newapi=1; tokenplan=4; balance=4; official=3 }[$t.Id]
     Check ("  " + $t.Id + " 预设数=" + $expect) ($ps.Count -eq $expect -and $ps[0].Id) ($ps.Count.ToString() + " 个")
 }
 
@@ -24,7 +24,7 @@ $idsByTpl = @{}
 foreach ($t in $tpls) { $idsByTpl[$t.Id] = (Get-ProviderPresets -Tpl $t.Id | ForEach-Object { $_.Id }) -join ',' }
 foreach ($k in $idsByTpl.Keys) { Write-Host ("  " + $k.PadRight(10) + " -> " + $idsByTpl[$k]) }
 Check "tokenplan 与 balance 预设不同" ($idsByTpl['tokenplan'] -ne $idsByTpl['balance'])
-Check "official 预设是 claude/codex" ($idsByTpl['official'] -eq 'claude,codex')
+Check "official 预设是 claude/codex/workbuddy" ($idsByTpl['official'] -eq 'claude,codex,workbuddy')
 
 Write-Host ""
 Write-Host "=== 3. 解析器（合成响应）==="
