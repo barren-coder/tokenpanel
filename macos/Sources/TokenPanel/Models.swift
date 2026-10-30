@@ -139,6 +139,12 @@ struct AppConfig: Codable {
     var creditsCrit: Double
     var startWithBoot: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case providers, refreshMinutes, timeout, theme
+        case dockRight, dockBottom, maxDockItems
+        case moneyWarn, moneyCrit, creditsWarn, creditsCrit, startWithBoot
+    }
+
     init() {
         providers = [
             ProviderConfig(
