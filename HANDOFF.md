@@ -1202,6 +1202,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version
 | 身份 | **仓库级**：`barren.wu` / `barren.wu@local`（未改全局配置） |
 | 换行 | `core.autocrlf=false`，文件按原字节提交，避免 CRLF 改写 |
 | 文件名 | `core.quotepath=false`，中文名正常显示 |
+| **远端** | `git@github.com:barren-coder/tokenpanel.git`（**SSH，已配好，push 无需密码**） |
+| 远端坑 | 本机网络 `github.com:443` 被阻断（`api.github.com`、`codeload` 反而通），所以**走 SSH 别走 HTTPS**；HTTPS 需借 v2rayN 代理 `127.0.0.1:10808`（仓库级 `http.proxy` 已设，换网络记得清） |
+| 凭据 | 用 `~/.ssh/id_ed25519`（GitHub 已登记，`ssh -T git@github.com` 应回 `Hi barren-coder!`）。**不要用 GCM**：沙箱里弹不出授权窗，且其 OAuth 回调要走被墙的 github.com |
 
 ### 16.2 每次改动的流程
 
