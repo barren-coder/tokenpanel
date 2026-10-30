@@ -11,6 +11,14 @@ config.json
 auth.json
 .env
 
+# ── 浏览器登录态（WorkBuddy 积分查询用，等同账号权限，绝不入库）──
+# 见 HANDOFF.md §15：.browser-profile 内含 Cookie，泄露 = 账号被接管
+.browser-profile/
+**/.browser-profile/
+*.cookies
+*Cookie*.txt
+cookie*.json
+
 # ── 运行时产物 ──────────────────────────────────────
 # 截图是文档的一部分，保留；这里只排除明显可再生的
 *.pyc
