@@ -875,6 +875,30 @@ if ($SelfTest) {
 }
 
 # ============================================================
+# 单实例保护
+# ============================================================
+# 双击两次不该出现两个悬浮窗（那也会让启动时的黑窗闪两轮）。
+# 所有 -Xxx 验证开关都跳过此检查，否则测试会被正在运行的实例挡住。
+$script:IsTestMode = [bool]($SelfTest -or $Shot -or $Demo -or $DumpMenu -or $ConfigShot -or
+    $LayoutCheck -or $TestAutostart -or $TestUI -or $GeomTest -or
+    $TestScale -or $TestRescaleLive -or $Anim -or $ForceOrient -or $ForceTheme)
+
+if (-not $script:IsTestMode) {
+    try {
+        $createdNew = $false
+        $script:InstanceMutex = [System.Threading.Mutex]::new($true, 'TokenPocket_SingleInstance', [ref]$createdNew)
+        if (-not $createdNew) {
+            Write-CoreLog '已有实例在运行，本次启动直接退出（单实例保护）'
+            exit 0
+        }
+        Write-CoreLog '单实例锁已获取'
+    } catch {
+        # 拿不到锁不阻塞启动，只是可能多开
+        Write-CoreLog ('单实例检测失败（不阻塞启动）: ' + $_.Exception.Message)
+    }
+}
+
+# ============================================================
 # 窗口
 # ============================================================
 $form = New-Object System.Windows.Forms.Form
@@ -1299,8 +1323,11 @@ function Open-ConfigFile {
 $script:RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 
 function Get-AutostartCommand {
-    $script = Join-Path $script:Root 'TokenPanel.ps1'
-    return 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $script + '"'
+    # 用 VBS 启动器，而不是直接调 powershell：
+    # 直接调 powershell 即使带 -WindowStyle Hidden，开机时仍会闪一下控制台
+    # （窗口先创建、再隐藏）。VBS 的窗口模式 0 是从创建起就隐藏，全程无窗。
+    $vbsPath = Join-Path $script:Root 'TokenPocket.vbs'
+    return 'wscript.exe //nologo "' + $vbsPath + '"'
 }
 
 function Get-AutostartEnabled {

@@ -1,7 +1,7 @@
 # Token Pocket — 项目交接文档
 
 > 面向接手本项目的 Agent。读完这份文档，你应该能直接改代码、验证、交付，不需要重新摸索。
-> 最后更新：2026-10-30 12:20 ｜ 版本 v1.1.4 内测版 ｜ 文档作者：上一手 Agent
+> 最后更新：2026-10-30 12:40 ｜ 版本 v1.1.5 内测版 ｜ 文档作者：上一手 Agent
 
 ---
 
@@ -60,12 +60,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\TokenPanel.ps1 -TestUI    
 ### 2.1 启动方式
 
 ```
-start-token-pocket.cmd        ← 正式入口，双击即可（-WindowStyle Hidden，无控制台）
+Token Pocket.lnk              ← 推荐入口，双击零闪（wscript + VBS，全程无控制台）
+TokenPocket.vbs               ← 无窗口启动器本体；也可直接双击，同样零闪
+start-token-pocket.cmd        ← 兼容入口，内部转调 VBS；cmd 自己的控制台会闪一下（约 50ms）
 start-token-panel.cmd         ← 旧名转发 stub，保留是为了不让已有快捷方式失效
-debug-token-panel.cmd         ← 保留控制台，启动失败时看报错
+debug-token-pocket.cmd        ← 保留控制台，启动失败时看报错
 ```
 
-**注意**：用 Agent 的后台任务启动，任务结束时进程会被回收，看起来像崩溃。这不是 bug。要常驻必须让用户双击 .cmd（独立进程）。
+**为什么不用 `start "" powershell.exe -WindowStyle Hidden`**（旧写法，已废弃）：
+`start` 会先给 powershell 开一个**可见**的控制台窗口，PowerShell 启动后才执行
+`-WindowStyle Hidden` 把它藏起来——中间那一下就是用户看到的黑窗闪。
+VBS 的 `Run cmd, 0, False` 是**从创建起就隐藏**，不存在可见阶段。
+
+**单实例保护**：`TokenPanel.ps1` 启动时抢命名 Mutex `TokenPocket_SingleInstance`，
+抢不到就写日志退出。所有 `-Xxx` 验证开关会跳过该检查（否则测试会被运行中的实例挡住）。
+这条同时解决了「双击两次 → 两个悬浮窗 + 闪两轮」的问题。
+
+**注意**：用 Agent 的后台任务启动，任务结束时进程会被回收，看起来像崩溃。这不是 bug。
+要常驻必须让用户双击（独立进程）。
+
+**移动文件夹后**：`.lnk` 里的路径是绝对路径，会失效；跑 `make-shortcut.ps1` 重新生成即可
+（`.vbs` 自己按脚本所在目录解析路径，是便携的）。
 
 ### 2.2 全部调试开关
 
@@ -918,8 +933,9 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | **v1.1.2** | 10-29 19:20 | 折叠态圆环改为显示 5 小时额度（不再取两窗口最大值）；双击刷新动效（旋转光弧 + 数字跳动 + 1 秒后拉新数据）；`-TestUI` 不再把 dockScale/uiScale/theme 写进用户配置；新增 `-Shot -Anim` |
 | **v1.1.3** | 10-30 11:30 | 折叠态单元 89→**68**、数字字号 14→16、小档隐藏账户名；贴边保持四角圆角（删掉置零逻辑）；纵排加「离任务栏 ≥150 **物理**像素」门槛；新增透明度 100/70/50/30 |
 | **v1.1.4** | 10-30 12:20 | 排版精修（方案 B）：笔宽 4→**2**（用量环与余额环统一）、数字 16 Bold→**15 SemiBold**、% 比例 0.62→**0.75**、% 间距 −2→**0**、账户名 9→**8**、**数字垂直居中修正**（0.075×字号）；排版参数全部抽成常量 |
+| **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPocket.vbs` 无窗口启动器 + `Token Pocket.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.1.4`。
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.1.5`。
 
 ---
 
@@ -1356,3 +1372,70 @@ measure-center  四档残留 ≤0.32px 全部居中
 ```
 
 三档实测（150% DPI，3 账户横排）：小 230×76 / 默认 306×102 / 大 382×128 物理像素。
+
+---
+
+## 19. 启动不闪黑窗（v1.1.5）
+
+### 19.1 根因
+
+旧启动方式：`start "Token Pocket" powershell.exe ... -WindowStyle Hidden`
+
+`start` 会先给 powershell **创建一个可见的控制台窗口**，PowerShell 启动之后才执行
+`-WindowStyle Hidden` 把它藏起来。中间那一下就是用户看到的黑窗闪。
+
+而且如果双击两次、或自启实例已在跑，闪的次数会翻倍——用户反馈的「闪好几个」就是这么来的。
+
+### 19.2 解法
+
+**`TokenPocket.vbs`**：`WScript.Shell.Run cmdLine, 0, False`
+第二个参数 0 = 窗口模式隐藏，**从创建起就隐藏**，不存在「先显示再隐藏」的阶段。
+
+**`Token Pocket.lnk`**：指向 `wscript` + `//nologo <vbs>`。
+wscript 是 GUI 子系统程序，双击不创建控制台 → 全程零窗口。
+
+**`start-token-pocket.cmd`**：改为转调 VBS。cmd 自己的控制台仍会闪一下（约 50ms），
+所以推荐入口换成了 `.lnk`。
+
+**自启命令**同步改为 `wscript` + vbs 路径（`Get-AutostartCommand`），开机启动也不再闪。
+
+### 19.3 验证方法（不靠肉眼）
+
+`verify-launch.ps1`：启动后枚举该进程所有顶层窗口，统计
+`class = ConsoleWindowClass 且 IsWindowVisible = true` 的个数，期望 0。
+
+实测结果：
+
+```
+=== 通过 Token Pocket.lnk 启动 ===
+  total=9 visibleConsole=0   → 控制台窗口存在但不可见
+=== 通过 start-token-pocket.cmd 启动 ===
+  total=9 visibleConsole=0
+```
+
+注意 `ConsoleWindowClass visible=False` 这一行：控制台**确实被创建了**，但从未可见。
+这正是「不闪」的准确含义——不是没有控制台，而是它从不显示。
+
+### 19.4 单实例保护
+
+`TokenPanel.ps1` 启动时抢 `Mutex 'TokenPocket_SingleInstance'`（`[System.Threading.Mutex]::new`），
+抢不到就写日志退出。所有 `-Xxx` 验证开关通过 `$script:IsTestMode` 跳过此检查，
+否则测试会被正在运行的实例挡住。
+
+实测：第二个实例 **259ms** 退出（正常启动要 2~3 秒建窗体），日志记
+「已有实例在运行，本次启动直接退出（单实例保护）」。
+
+### 19.5 排查中发现的两个问题
+
+1. **一个残留实例把用户配置覆盖了** —— 排查时发现有个开机自启的旧实例（用改前的命令启动）
+   一直在跑，它内存里的 `opacity=0.5` 在 12:25 保存时把文件覆盖回了 0.5，
+   导致 12:22 手动还原的 1.0 白做。
+   **教训：改配置前先确认没有实例在跑，否则会被 stale 内存覆盖。** 这类问题极难从日志看出来。
+2. **`shot-config.png` 曾被覆盖成系统页截图** —— 两张图字节数完全相同才发现。
+   重新生成后两者尺寸不同（账户页 1290 高、系统页 1281 高）。
+   **教训：截图生成后要核对尺寸差异，别只看文件名。**
+
+### 19.6 移动文件夹后
+
+`.lnk` 里是绝对路径，移动后失效；跑 `make-shortcut.ps1` 重新生成。
+`.vbs` 按自身所在目录解析路径，是便携的（可以直接双击 `.vbs`）。

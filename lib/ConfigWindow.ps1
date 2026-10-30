@@ -1484,6 +1484,12 @@ function Show-ConfigWindow {
 
         # 5) 超时/间隔 + 保存落盘
         #    保存前把界面缩放/悬浮大小/配色点回打开时的值，保证测试留下的文件是「中性」的
+        #    注意：下面这些 chip 都在系统页上，而第 4 步已切到账户页。
+        #    PerformClick 要求控件可见（CanSelect），隐藏时不触发 —— 必须先切页，
+        #    否则点击静默失效、保存下去的还是旧值（踩过两次）。
+        Show-Page -Page 'system'
+        [System.Windows.Forms.Application]::DoEvents()
+
         $dsv = 0.0
         if (-not [double]::TryParse([string]$Cfg.dockScale, [ref]$dsv) -or $dsv -le 0) { $dsv = 1.0 }
         $dsKey = if ($dsv -lt 0.9) { '0.75' } elseif ($dsv -gt 1.1) { '1.25' } else { '1' }
@@ -1496,10 +1502,6 @@ function Show-ConfigWindow {
         $themeButtons[$thCfg].PerformClick()
         $tbTimeout.Text = '25'
         $tbInterval.Text = '7'
-        # 透明度 chip 在系统页上；PerformClick 要求控件可见（CanSelect），
-        # 账户页时这些控件是隐藏的，点了不触发 —— 必须先切回系统页
-        Show-Page -Page 'system'
-        [System.Windows.Forms.Application]::DoEvents()
         $opacityButtons['0.5'].PerformClick()      # 用非默认值验证落盘
         $btnSave.PerformClick()
         Start-Sleep -Milliseconds 400

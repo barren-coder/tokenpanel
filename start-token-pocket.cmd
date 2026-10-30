@@ -1,11 +1,14 @@
 @echo off
 rem ============================================================
 rem  Token Pocket launcher
-rem  Double-click to start. The floating window docks to the
-rem  bottom-right corner of your screen.
-rem    Left-click  : expand / collapse
-rem    Drag        : move anywhere (auto-snaps near screen edges)
-rem    Right-click : menu (settings / refresh / autostart / quit)
+rem
+rem  双击启动。真正的启动动作交给 TokenPocket.vbs，
+rem  这样不会出现黑色控制台窗口一闪而过。
+rem
+rem  操作方式：
+rem    左键点击  : 展开 / 收起
+rem    拖动      : 移动位置（靠近屏幕边缘会自动吸附）
+rem    右键点击  : 菜单（设置 / 刷新 / 开机启动 / 退出）
 rem ============================================================
 
 cd /d "%~dp0"
@@ -16,8 +19,13 @@ if not exist "TokenPanel.ps1" (
     exit /b 1
 )
 
-rem -WindowStyle Hidden keeps the console out of sight.
-rem Use debug-token-pocket.cmd if you need to see errors.
-start "Token Pocket" powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "TokenPanel.ps1"
+if not exist "TokenPocket.vbs" (
+    echo [ERROR] TokenPocket.vbs not found in this folder.
+    pause
+    exit /b 1
+)
+
+rem 用 VBS 拉起，窗口模式 0 = 隐藏，避免控制台闪烁
+wscript.exe //nologo "TokenPocket.vbs"
 
 exit /b 0
