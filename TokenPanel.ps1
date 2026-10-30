@@ -58,6 +58,15 @@ public class NativeWin {
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     public struct RECT { public int Left, Top, Right, Bottom; }
+
+    // 置顶修复用：直接读写扩展样式。
+    // 踩过的坑：Form.TopMost = $true 在本项目里最终没有落到 WS_EX_TOPMOST 位上
+    // （实测 EXSTYLE=0x00090000，只有 LAYERED|CONTROLPARENT），
+    // 所以点别的窗口就被盖住。改为显式读-改-写样式位 + SetWindowPos 抬到 topmost 带。
+    [DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")]
+    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
 
 // 右键菜单配色（深/浅两套，由 Light 字段切换）
@@ -922,6 +931,30 @@ function Preview-Opacity {
     if ($V -lt 0.3) { $V = 0.3 }
     if ($V -gt 1.0) { $V = 1.0 }
     try { $script:MainForm.Opacity = $V } catch { }
+    # 改 Opacity 会走 WinForms 的分层窗口路径，置顶位可能被顺手清掉，重新断言一次
+    Assert-TopMost
+}
+
+# 强制把主窗钉在最上层。
+# 为什么不能只靠 $form.TopMost = $true：实测该属性最终没落到 WS_EX_TOPMOST
+# （EXSTYLE=0x00090000，只有 LAYERED|CONTROLPARENT），点别的窗口就被覆盖。
+# 这里做两件事：
+#   1) 读-改-写 GWL_EXSTYLE，确保 WS_EX_TOPMOST(0x8) 位被置上（保留其他位）
+#   2) SetWindowPos(HWND_TOPMOST) 真正抬进 topmost 带 —— 只设样式位不会立刻重排 z 序
+function Assert-TopMost {
+    try {
+        if (-not $script:MainForm) { return }
+        if (-not $script:MainForm.IsHandleCreated) { return }
+        $h = $script:MainForm.Handle
+        $GWL_EXSTYLE = -20
+        $WS_EX_TOPMOST = 0x8
+        $ex = [NativeWin]::GetWindowLong($h, $GWL_EXSTYLE)
+        if (($ex -band $WS_EX_TOPMOST) -eq 0) {
+            [void][NativeWin]::SetWindowLong($h, $GWL_EXSTYLE, ($ex -bor $WS_EX_TOPMOST))
+        }
+        # HWND_TOPMOST = -1；SWP_NOSIZE(1)|SWP_NOMOVE(2)|SWP_NOACTIVATE(0x10)
+        [void][NativeWin]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x13)
+    } catch { }
 }
 
 # 启动时按配置恢复透明度
@@ -1241,6 +1274,8 @@ $form.add_LocationChanged({
 # ============================================================
 function Show-Panel {
     $script:MainForm.Show()
+    # Hide/Show 之后置顶位会丢，重新断言（关闭按钮走的是 Hide）
+    Assert-TopMost
     $script:MainForm.Activate()
     if ($script:Mode -ne 'panel') { Apply-Mode 'panel' }
 }
@@ -1909,4 +1944,7 @@ if ($Shot) {
 }
 
 $form.Show()
+# 句柄此时才真正创建完成，属性设置期间设的 TopMost 可能没落到位，这里显式钉一次
+Assert-TopMost
+Write-CoreLog ('置顶断言后 EXSTYLE=0x' + ([NativeWin]::GetWindowLong($form.Handle, -20)).ToString('X8'))
 [System.Windows.Forms.Application]::Run($form)

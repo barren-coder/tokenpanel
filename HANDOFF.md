@@ -1,7 +1,7 @@
 # Token Pocket — 项目交接文档
 
 > 面向接手本项目的 Agent。读完这份文档，你应该能直接改代码、验证、交付，不需要重新摸索。
-> 最后更新：2026-10-30 12:40 ｜ 版本 v1.1.5 内测版 ｜ 文档作者：上一手 Agent
+> 最后更新：2026-10-30 13:55 ｜ 版本 v1.1.6 内测版 ｜ 文档作者：上一手 Agent
 
 ---
 
@@ -953,8 +953,9 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | **v1.1.3** | 10-30 11:30 | 折叠态单元 89→**68**、数字字号 14→16、小档隐藏账户名；贴边保持四角圆角（删掉置零逻辑）；纵排加「离任务栏 ≥150 **物理**像素」门槛；新增透明度 100/70/50/30 |
 | **v1.1.4** | 10-30 12:20 | 排版精修（方案 B）：笔宽 4→**2**（用量环与余额环统一）、数字 16 Bold→**15 SemiBold**、% 比例 0.62→**0.75**、% 间距 −2→**0**、账户名 9→**8**、**数字垂直居中修正**（0.075×字号）；排版参数全部抽成常量 |
 | **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPocket.vbs` 无窗口启动器 + `Token Pocket.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
+| **v1.1.6** | 10-30 13:55 | 修复**悬浮窗不置顶**（`Form.TopMost` 未落到 `WS_EX_TOPMOST`，改为显式读-改-写样式位 + `SetWindowPos(HWND_TOPMOST)`，并在 Show / Hide→Show / 改透明度后重新断言）；新增 `diag-topmost.ps1` 探针 |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.1.5`。
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.1.6`。
 
 ---
 
@@ -1507,3 +1508,58 @@ wscript 是 GUI 子系统程序，双击不创建控制台 → 全程零窗口�
 
 已经排除了：路径精度、`AddArc` vs 精细展平、`Flatten` 容差、半径大小、描边覆盖。
 **除非决定上分层窗口，否则这块没有可挖的东西了。**
+
+---
+
+## 21. 悬浮窗不置顶（v1.1.6 已修）
+
+用户反馈：点一下别的窗口，悬浮窗就被盖住了。
+
+### 21.1 根因（实测数据）
+
+代码里明明写了 `$form.TopMost = $true`，但读窗口的扩展样式发现**根本没生效**：
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| `EXSTYLE` | `0x00090000` | `0x00090008` |
+| `WS_EX_TOPMOST` | **否** | 是 |
+| z 序位置 | #7（在 Chrome 之下） | **#3（置顶带内）** |
+| 记事本抢焦点后 | 被覆盖 | 仍在 #3 置顶 |
+
+`0x00090000` = `WS_EX_LAYERED(0x80000)` | `WS_EX_CONTROLPARENT(0x10000)`——
+LAYERED 是透明度加的，而 `WS_EX_TOPMOST(0x8)` 位压根没置上。
+所以 `TopMost` 属性在这套窗体配置下（无边框 + `ShowInTaskbar=false` + 设过 `Opacity`）
+没有真正落到窗口样式上。
+
+**教训**：WinForms 的 `TopMost` 属性不等于 `WS_EX_TOPMOST` 位。
+涉及窗口层级/样式的行为，**要读 `GetWindowLong(GWL_EXSTYLE)` 验证，不要相信属性名**。
+
+### 21.2 修法
+
+`Assert-TopMost`（`TokenPanel.ps1` 内，紧邻 `Preview-Opacity`）做两件事：
+
+1. 读-改-写 `GWL_EXSTYLE`，确保 `WS_EX_TOPMOST` 位被置上（保留其他位，不要直接赋值覆盖）
+2. `SetWindowPos(HWND_TOPMOST=-1, ..., SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE)` 真正抬进 topmost 带
+
+**只做第 1 步不够**：光置样式位不会立刻重排 z 序，窗口还是压在别的窗口下面。
+
+调用时机（这几个点都可能把置顶位弄丢）：
+- `$form.Show()` 之后（句柄此时才真正建好）
+- `Show-Panel` 里 `Hide()`→`Show()` 之后（关闭按钮走的是 `Hide`）
+- `Preview-Opacity` 改完 `Opacity` 之后（走分层窗口路径，可能顺手清掉样式位）
+
+### 21.3 验证工具
+
+`diag-topmost.ps1`：启动程序 → 读 `GWL_EXSTYLE` 判 `TOPMOST` 位 →
+枚举 z 序确认是否在置顶带内 → 再拉一个记事本抢焦点，看是否被覆盖。
+
+**注意**：脚本必须自己做 DPI 感知（`SetThreadDpiAwarenessContext(-4)`），
+否则 `GetWindowRect` 与 `CopyFromScreen` 坐标错位（这个坑在 §19/§20 也踩过两次）。
+
+### 21.4 后续如果又出现被覆盖
+
+按顺序查：
+1. `diag-topmost.ps1` 看 `TOPMOST` 位是否还在
+2. 如果位在但视觉上仍被覆盖 → 对方窗口可能也是 topmost，或全屏独占（如游戏、投屏）
+3. 如果位丢了 → 找新加的 `Show()` / `Hide()` / `Opacity` / `SetWindowLong` 调用，
+   在它之后补一次 `Assert-TopMost`
