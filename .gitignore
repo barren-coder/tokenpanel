@@ -27,3 +27,7 @@ __pycache__/
 # 说明：
 # release/ 里的 zip 与目录是发布快照，故意纳入版本管理，
 # 这样每个 tag 都能取到当时的完整可分发产物。
+
+# 授权结果文件（运行时产物）
+.auth-result.json
+**/.auth-result.json
