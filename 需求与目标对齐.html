@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Token 消耗面板 · 需求与目标对齐</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131820; --panel2:#1a212b; --line:#252d3a;
+    --tx:#e6edf3; --tx2:#9aa7b8; --tx3:#6b7a8f;
+    --cy:#2dd4bf; --am:#f59e0b; --rd:#ef4444; --bl:#58a6ff; --gr:#3fb950;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:48px 32px 80px; background:var(--bg); color:var(--tx);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;
+    font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:30px;line-height:1.3;margin:0 0 8px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:13.5px;margin-bottom:38px}
+  h2{font-size:19px;margin:50px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h2 .n{color:var(--cy);font-family:ui-monospace,Consolas,monospace;font-size:14px;margin-right:10px}
+  h3{font-size:15px;margin:26px 0 10px}
+  p{margin:10px 0}
+  code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:13px;background:var(--panel2);padding:2px 6px;border-radius:4px;color:var(--cy)}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:15px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;margin:14px 0}
+  pre code{background:none;padding:0;color:#c9d6e4}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--tx2);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--cy);font-weight:600}
+  .warn{color:var(--am);font-weight:600}
+  .bad{color:var(--rd);font-weight:600}
+  .muted{color:var(--tx3)}
+
+  .hero{background:linear-gradient(135deg,#132028 0%,#131820 60%);border:1px solid #1e3a3a;border-radius:12px;padding:22px 24px;margin:0 0 8px}
+  .hero .t{color:var(--cy);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
+  .hero .big{font-size:19px;line-height:1.55;margin:6px 0 12px;letter-spacing:-.01em}
+  .hero .big b{color:#fff}
+  .hero p{margin:6px 0;font-size:14px;color:var(--tx2)}
+
+  .grid{display:grid;gap:12px;margin:16px 0}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:14px 16px}
+  .card .k{font-size:12px;color:var(--tx3);margin-bottom:6px}
+  .card .v{font-size:21px;font-weight:700;font-family:ui-monospace,Consolas,monospace;letter-spacing:-.01em}
+  .card .d{font-size:12.5px;color:var(--tx2);margin-top:4px}
+
+  .lv{display:flex;gap:12px;margin:16px 0;flex-wrap:wrap}
+  .lv .item{flex:1;min-width:210px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:15px 16px;position:relative}
+  .lv .item.done{border-color:#1e4a44}
+  .lv .item .tag{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--cy);letter-spacing:.05em}
+  .lv .item .h{font-size:15px;font-weight:600;margin:6px 0 8px}
+  .lv .item .b{font-size:13px;color:var(--tx2);line-height:1.65}
+  .lv .item .st{position:absolute;top:14px;right:14px;font-size:11.5px;padding:2px 8px;border-radius:20px;background:#1e3a3a;color:var(--cy)}
+
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:600}
+  .p0{background:#1e3a3a;color:var(--cy)}
+  .p1{background:#3d2f12;color:var(--am)}
+  .p2{background:#2a2f3d;color:var(--bl)}
+  .pn{background:#3a1c1c;color:var(--rd)}
+
+  ul.clean{margin:10px 0;padding-left:20px}
+  ul.clean li{margin:6px 0;font-size:14px}
+
+  .note{border-left:3px solid var(--am);background:#1c1a12;padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0;font-size:13.5px}
+  .note.cy{border-left-color:var(--cy);background:#0f1e1e}
+  .note.rd{border-left-color:var(--rd);background:#1e1212}
+  .note b{color:#fff}
+
+  .qbox{background:var(--panel);border:1px solid #2e3a4a;border-radius:10px;padding:6px 0;margin:14px 0}
+  .qbox .q{padding:14px 18px;border-bottom:1px solid var(--line)}
+  .qbox .q:last-child{border-bottom:none}
+  .qbox .q .t{font-size:14.5px;font-weight:600;margin-bottom:6px}
+  .qbox .q .t em{font-style:normal;color:var(--cy);font-family:ui-monospace,Consolas,monospace;font-size:12.5px;margin-right:8px}
+  .qbox .q .d{font-size:13px;color:var(--tx2)}
+  .qbox .q .opt{font-size:13px;color:var(--tx);margin-top:6px}
+  .qbox .q .opt span{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 9px;margin:3px 6px 0 0;font-size:12.5px}
+
+  .foot{margin-top:54px;padding-top:20px;border-top:1px solid var(--line);color:var(--tx3);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Token 消耗面板 · 需求与目标对齐</h1>
+  <div class="sub">v2 已可运行 · 重新梳理目标与范围 · 2026-10-29</div>
+
+  <div class="hero">
+    <div class="t">一句话定位</div>
+    <div class="big">在额度<strong>耗尽之前</strong>告诉你，而不是耗尽之后才发现。</div>
+    <p>它不是监控工具（那是给运维看报表用的），是<strong>预警工具</strong>——目标只有一个：让你在写代码写到一半时，不要突然撞上 429。</p>
+    <p>所以判断功能该不该做，标准不是「能不能做」，而是「<strong>能不能帮你避免一次被打断</strong>」。</p>
+  </div>
+
+  <h2><span class="n">01</span>为什么需要它</h2>
+
+  <p>你的实际情况（今天实测）：订阅 MiniMax Coding Plan，双窗口限额，正在跑 Codex，消耗是持续的。</p>
+
+  <div class="grid g3">
+    <div class="card"><div class="k">5 小时窗口</div><div class="v" style="color:var(--cy)">100%</div><div class="d">刚重置，15:00 结束</div></div>
+    <div class="card"><div class="k">本周窗口</div><div class="v" style="color:var(--cy)">66%</div><div class="d">11-02 00:00 重置</div></div>
+    <div class="card"><div class="k">昨晚 18:20 样本</div><div class="v" style="color:var(--am)">68%</div><div class="d">2 分钟内掉到 60%</div></div>
+  </div>
+
+  <p>三个真实痛点，按严重程度排：</p>
+  <ul class="clean">
+    <li><b>撞墙时机不可控</b> —— 5 小时窗口滚动重置，你不知道它什么时候到期、还剩多少。写着写着突然不可用，上下文全断。</li>
+    <li><b>消耗速度无感</b> —— 实测 2 分钟掉 8 个百分点。这种速度下，靠「偶尔想起来查一下」根本来不及反应。</li>
+    <li><b>多供应商时更乱</b> —— 你有 20+ 个供应商配置，Codex 和 Claude 走的可能不是同一家，额度分散在几个后台里。</li>
+  </ul>
+
+  <div class="note cy">
+    <b>关键洞察：这个软件的价值不在「显示」，在「及时」。</b>
+    如果它只是把网页后台的数字搬到托盘，那价值很有限——你还是得主动去看。真正的价值是<b>它主动来找你</b>：低于阈值时弹一次通知，或者图标变红让你余光扫到。
+  </div>
+
+  <h2><span class="n">02</span>目标分层</h2>
+
+  <p>把目标拆成三层，避免一上来就想做全套。每层有明确的验收标准，达成即停，不超前。</p>
+
+  <div class="lv">
+    <div class="item done">
+      <div class="st">已达成</div>
+      <div class="tag">L0</div>
+      <div class="h">看得见</div>
+      <div class="b">托盘常驻，一个数字说明当前额度。不用打开任何网页。</div>
+      <div class="b" style="margin-top:8px;color:var(--tx3)">验收：余光扫一眼就知道还剩多少</div>
+    </div>
+    <div class="item">
+      <div class="tag">L1</div>
+      <div class="h">提前知道</div>
+      <div class="b">低于阈值主动提醒；额度重置时告诉你恢复了。</div>
+      <div class="b" style="margin-top:8px;color:var(--tx3)">验收：不需要盯着，它会在该提醒时提醒</div>
+    </div>
+    <div class="item">
+      <div class="tag">L2</div>
+      <div class="h">心里有数</div>
+      <div class="b">消耗速率、还能撑多久、多供应商同屏、历史趋势。</div>
+      <div class="b" style="margin-top:8px;color:var(--tx3)">验收：能据此决定「现在该不该开新任务」</div>
+    </div>
+  </div>
+
+  <p class="muted">当前在 L0 和 L1 之间。L1 是性价比最高的一步，L2 属于锦上添花。</p>
+
+  <h2><span class="n">03</span>功能清单</h2>
+
+  <h3>P0 · 已完成 <span class="pill p0">已交付</span></h3>
+  <table>
+    <tbody>
+      <tr><td style="width:34%">托盘常驻 + 百分比图标</td><td>环形 / 圆盘 / 纯数字三种样式，阈值变色</td></tr>
+      <tr><td>详情面板</td><td>双窗口进度条 + 重置倒计时，可拖动</td></tr>
+      <tr><td>配置页</td><td>6 家供应商预设、API 地址/Key、认证方式、刷新间隔、阈值、图标样式</td></tr>
+      <tr><td>自动探测 Key</td><td>环境变量 → <code>.codex/auth.json</code> → <code>.claude/settings.json</code>，真实请求验证后采用</td></tr>
+      <tr><td>凭据加密</td><td>Windows DPAPI，绑定当前用户</td></tr>
+      <tr><td>失败降级</td><td>查询失败保留上次值不清零，错误写日志</td></tr>
+      <tr><td>开机自启</td><td>写 <code>HKCU\...\Run</code>（已随目录迁移更新路径）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>P1 · 建议下一步做 <span class="pill p1">性价比最高</span></h3>
+  <table>
+    <thead><tr><th>功能</th><th>为什么值得做</th><th>成本</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>修 GDI 泄漏</b></td>
+        <td>当前内存 113 MB，每刷新一次漏一个 HICON 句柄，挂几周会耗尽 GDI。这是缺陷修复，不是新功能。</td>
+        <td>约 1 小时</td>
+      </tr>
+      <tr>
+        <td><b>阈值预警通知</b></td>
+        <td>L1 的核心。低于告急阈值弹一次 Windows 通知，额度重置时也提示。这是「预警工具」真正成立的地方。</td>
+        <td>约 2 小时</td>
+      </tr>
+      <tr>
+        <td><b>单实例保护</b></td>
+        <td>现在重复启动会出现两个托盘图标。用命名互斥量（Mutex）挡住第二次启动。</td>
+        <td>约 30 分钟</td>
+      </tr>
+      <tr>
+        <td><b>多供应商并存</b></td>
+        <td>不是「切换」，是同时看 2–3 家。托盘显示最紧张的那个，面板里分列。</td>
+        <td>约 3 小时</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>P2 · 可选，看你要不要 <span class="pill p2">锦上添花</span></h3>
+  <table>
+    <tbody>
+      <tr><td style="width:30%">消耗速率预测</td><td>按最近消耗速度算「还能撑 2.3 小时」。实现简单（记录两次采样求斜率），但要在 L1 之后才有意义。</td></tr>
+      <tr><td>历史趋势</td><td>本地 SQLite 记录采样点，画 7 天曲线。能看出「我一周大概用多少」，但需要落盘和清理策略。</td></tr>
+      <tr><td>桌面悬浮条</td><td>无边框 always-on-top 小条，可拖动。比托盘更显眼，但可能挡视线——你之前说过反感视觉干扰。</td></tr>
+      <tr><td>多机同步</td><td>你有多台机器（配置是从 Mac 同步过来的），读 CC Switch 的 WebDAV 同步额度记录。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>明确不做 <span class="pill pn">范围边界</span></h3>
+  <table>
+    <tbody>
+      <tr><td style="width:30%">API 代理 / 转发</td><td>那是 CC Switch 的职责，重复造轮子还会互相打架。</td></tr>
+      <tr><td>Key 管理 / 供应商切换</td><td>同上，CC Switch 已经做得很好，硬要合并只会增加耦合。</td></tr>
+      <tr><td>Token 计费统计</td><td>各家口径不同、缓存命中不算钱，算出来的金额不准，反而误导决策。</td></tr>
+      <tr><td>跨平台</td><td>先只做 Windows。托盘和 DPAPI 都是平台绑定的，抽象成本不划算。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>划这条线很重要。</b>这个软件最容易失控的方向就是「顺手把 CC Switch 的功能也做了」——一旦开始管 Key 和切换，它就从「预警工具」变成「半个代理管理器」，复杂度翻十倍，而你真正需要的那个数字反而没人管了。
+  </div>
+
+  <h2><span class="n">04</span>现状体检（实测）</h2>
+
+  <table>
+    <thead><tr><th>指标</th><th>实测值</th><th>评价</th></tr></thead>
+    <tbody>
+      <tr><td>内存占用</td><td class="warn">112.9 MB</td><td>偏高。根因是 <code>GetHicon()</code> 句柄未销毁</td></tr>
+      <tr><td>GDI 句柄</td><td class="warn">705</td><td>正常应 200–400，泄漏累积后会耗尽（上限约 10000）</td></tr>
+      <tr><td>接口响应</td><td class="ok">0.8 s</td><td>好</td></tr>
+      <tr><td>程序体积</td><td class="ok">58 KB</td><td>单文件脚本，无依赖</td></tr>
+      <tr><td>启动耗时</td><td class="ok">约 2 s</td><td>可接受（PowerShell 宿主启动慢是常态）</td></tr>
+      <tr><td>崩溃情况</td><td class="ok">无</td><td>连续运行稳定</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="n">05</span>技术路线：继续用还是迁移</h2>
+
+  <table>
+    <thead><tr><th>维度</th><th>PowerShell + WinForms（当前）</th><th>Tauri v2</th></tr></thead>
+    <tbody>
+      <tr><td>安装成本</td><td class="ok">零（Windows 自带）</td><td class="warn">需装 Rust 工具链，约 15 分钟</td></tr>
+      <tr><td>体积</td><td class="ok">58 KB</td><td class="ok">5–10 MB</td></tr>
+      <tr><td>内存</td><td class="warn">113 MB（可优化到 70–80）</td><td class="ok">40–60 MB</td></tr>
+      <tr><td>UI 上限</td><td class="warn">低（自绘控件，做不了动画/图表）</td><td class="ok">高（Web 技术，图表随便画）</td></tr>
+      <tr><td>迁移成本</td><td>—</td><td class="warn">约 1.5 天（重写数据层 + 界面）</td></tr>
+      <tr><td>适合场景</td><td>L0–L1，自用</td><td>L2，要图表/多供应商/给别人用</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note cy">
+    <b>我的建议：先别迁。</b>先花 1 小时把 GDI 泄漏修掉，看内存能压到多少。如果降到 80 MB 以下且你只需要 L1，PowerShell 版继续用完全够——它的 UI 上限确实低，但「托盘一个数字 + 弹个通知」这个需求，压根用不到 Web 技术。
+    <br><br>
+    真正该迁的信号只有一个：<b>你开始想要 L2 的图表和趋势</b>。那时候 WinForms 自绘曲线会让你痛苦，Tauri 的 1.5 天就值了。
+  </div>
+
+  <h2><span class="n">06</span>实施步骤</h2>
+
+  <table>
+    <thead><tr><th>阶段</th><th>内容</th><th>验收标准</th><th>预估</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>S0</b> <span class="pill p0">已完成</span></td>
+        <td>数据通路 + 托盘 + 配置页 + 美化</td>
+        <td>托盘显示正确数字，配置页可改供应商与样式</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><b>S1</b></td>
+        <td>修 GDI 泄漏（ICO 字节流替代 GetHicon）+ 单实例保护</td>
+        <td>连续刷新 50 次，句柄数不增长；内存 &lt; 90 MB；重复启动不出现第二个图标</td>
+        <td>1.5 h</td>
+      </tr>
+      <tr>
+        <td><b>S2</b></td>
+        <td>阈值预警：低于告急值弹通知、额度重置时提示、图标进入告警态</td>
+        <td>手动把阈值调到 99%，能立刻收到通知；同一状态不重复轰炸</td>
+        <td>2 h</td>
+      </tr>
+      <tr>
+        <td><b>S3</b></td>
+        <td>多供应商并存（同时监控 2–3 家，托盘显示最紧张的）</td>
+        <td>配两家供应商，面板分列显示，托盘取最小值</td>
+        <td>3 h</td>
+      </tr>
+      <tr>
+        <td><b>S4</b></td>
+        <td>稳定性收尾：开机自启实测、异常恢复、日志轮转</td>
+        <td>重启电脑后自动出现在托盘并显示正确数据</td>
+        <td>1 h</td>
+      </tr>
+      <tr>
+        <td><b>S5</b> <span class="pill p2">可选</span></td>
+        <td>迁 Tauri v2（仅当决定要做 L2 图表时）</td>
+        <td>功能对齐 PowerShell 版，内存 &lt; 60 MB</td>
+        <td>1.5 d</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">S1–S4 合计约 7.5 小时，做完就是一个「L1 完整」的工具：看得见、会提醒、不添乱。</p>
+
+  <h2><span class="n">07</span>需要你拍板的四件事</h2>
+
+  <div class="qbox">
+    <div class="q">
+      <div class="t"><em>Q1</em>内存 113 MB 你能接受吗？</div>
+      <div class="d">这决定要不要迁 Tauri。我的判断是先修泄漏看能不能压到 80 MB 以下，够用就别迁。</div>
+      <div class="opt"><span>能接受，别折腾</span><span>先修泄漏再看</span><span>必须降到 60 MB，直接迁</span></div>
+    </div>
+    <div class="q">
+      <div class="t"><em>Q2</em>预警通知要什么形式？</div>
+      <div class="d">「及时」是这个软件的核心价值，但提醒方式决定它会不会变成骚扰。</div>
+      <div class="opt"><span>系统通知（Toast）</span><span>图标变红就够，别弹窗</span><span>托盘气泡提示</span><span>都要</span></div>
+    </div>
+    <div class="q">
+      <div class="t"><em>Q3</em>你实际会同时用几家供应商？</div>
+      <div class="d">如果只用 MiniMax 一家，S3「多供应商并存」可以直接砍掉，省 3 小时。</div>
+      <div class="opt"><span>就一家</span><span>两家（比如 MiniMax + DeepSeek）</span><span>三家以上，要分列</span></div>
+    </div>
+    <div class="q">
+      <div class="t"><em>Q4</em>要不要历史趋势和速率预测？</div>
+      <div class="d">这是 L2 的核心，也是唯一真正需要迁 Tauri 的理由。做它意味着加 SQLite、加图表、加清理策略。</div>
+      <div class="opt"><span>要，值得</span><span>先不做，以后再说</span><span>只要「还能撑多久」，不要曲线</span></div>
+    </div>
+  </div>
+
+  <div class="note rd">
+    <b>还有一个我必须提醒的风险：</b>这些额度接口都是各家的<b>未公开内部接口</b>（MiniMax 的 <code>coding_plan/remains</code>、Claude 的 <code>/api/oauth/usage</code>、Codex 的 <code>wham/usage</code>），随时可能改字段、加签名、或者直接下线。这不是「会不会」的问题，是「什么时候」的问题。所以架构上必须做到：<b>某个供应商失效时，其他供应商和整体界面不受影响</b>，且能在配置页快速改地址自救。
+  </div>
+
+  <div class="foot">
+    项目位置：<code>D:\AppData\token消耗面板\</code>　·　主程序 <code>QuotaTray.ps1</code>　·　启动器 <code>start-quota-tray.cmd</code>
+  </div>
+
+</div>
+</body>
+</html>

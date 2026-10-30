@@ -1,0 +1,21 @@
+# ── 本地环境 / 临时文件 ──────────────────────────────
+*.tmp
+*.log
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ── 敏感数据（正常都在 %APPDATA%\TokenPocket，这里只防误放）──
+config.json
+*.credentials.json
+auth.json
+.env
+
+# ── 运行时产物 ──────────────────────────────────────
+# 截图是文档的一部分，保留；这里只排除明显可再生的
+*.pyc
+__pycache__/
+
+# 说明：
+# release/ 里的 zip 与目录是发布快照，故意纳入版本管理，
+# 这样每个 tag 都能取到当时的完整可分发产物。

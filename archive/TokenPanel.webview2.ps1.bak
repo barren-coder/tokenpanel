@@ -1,0 +1,395 @@
+# TokenPanel.ps1 — Token 消耗面板（WebView2 宿主）
+# 架构：PowerShell 负责窗口 + 数据，WebView2 渲染 HTML/CSS 界面
+# 运行：powershell -ExecutionPolicy Bypass -File .\TokenPanel.ps1
+#      加 -Debug 打开开发者工具
+
+param(
+    [switch]$Debug,
+    [switch]$SelfTest
+)
+
+$ErrorActionPreference = 'Stop'
+
+$script:Root    = Split-Path -Parent $MyInvocation.MyCommand.Path
+$script:LibDir  = Join-Path $script:Root 'lib'
+$script:SrcDir  = Join-Path $script:Root 'src'
+$script:DataDir = Join-Path $env:LOCALAPPDATA 'TokenPanel\WebView2'
+
+# WebView2Loader.dll 必须能被找到，且位数要与宿主一致
+# 本机只有 32 位 WebView2 运行时，所以用 32 位宿主 + x86 Loader
+if ([Environment]::Is64BitProcess) {
+    $env:PATH = "$($script:LibDir);$env:PATH"
+} else {
+    $env:PATH = "$($script:LibDir)\x86;$($script:LibDir);$env:PATH"
+}
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Security
+
+# ---------- Win32：用于窗口拖动 ----------
+$nativeSrc = @'
+using System;
+using System.Runtime.InteropServices;
+public class NativeWin {
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+'@
+try {
+    Add-Type -TypeDefinition $nativeSrc -ErrorAction Stop
+} catch {
+    Write-Host ("[WARN] NativeWin 编译失败: " + $_.Exception.Message)
+}
+
+# ---------- 加载 WebView2 ----------
+$coreDll = Join-Path $script:LibDir 'Microsoft.Web.WebView2.Core.dll'
+$wfDll   = Join-Path $script:LibDir 'Microsoft.Web.WebView2.WinForms.dll'
+foreach ($d in @($coreDll, $wfDll)) {
+    if (-not (Test-Path $d)) {
+        [System.Windows.Forms.MessageBox]::Show("缺少 WebView2 DLL：`n$d", 'TokenPanel')
+        exit 1
+    }
+    Add-Type -Path $d
+}
+
+# ---------- 数据层 ----------
+. (Join-Path $script:LibDir 'QuotaCore.ps1')
+
+# ---------- 配置 ----------
+$script:Cfg = Load-Config
+
+# 首次运行：没有 Key 时自动探测
+$needProbe = $true
+foreach ($p in $script:Cfg.providers) {
+    if (Unprotect-String $p.apiKey) { $needProbe = $false; break }
+}
+if ($needProbe) {
+    Write-CoreLog '未配置 Key，尝试自动探测'
+    $found = Find-WorkingKey -Type $script:Cfg.providers[0].type
+    if ($found) {
+        $script:Cfg.providers[0].apiKey = Protect-String $found.Key
+        Save-Config -Cfg $script:Cfg
+        Write-CoreLog ('自动探测成功: ' + $found.Src)
+    }
+}
+
+# ---------- 运行时自动发现 ----------
+function Get-RuntimeCandidates {
+    $list = @()
+    $roots = @(
+        "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application",
+        "${env:ProgramFiles}\Microsoft\EdgeWebView\Application",
+        "${env:ProgramFiles(x86)}\Microsoft\EdgeCore",
+        "${env:ProgramFiles}\Microsoft\EdgeCore",
+        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application",
+        "${env:ProgramFiles}\Microsoft\Edge\Application"
+    )
+    foreach ($r in $roots) {
+        if (-not (Test-Path $r)) { continue }
+        $dirs = Get-ChildItem $r -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d+\.' } |
+            Sort-Object Name -Descending
+        foreach ($d in $dirs) {
+            if (Test-Path (Join-Path $d.FullName 'msedgewebview2.exe')) {
+                $list += $d.FullName
+            }
+        }
+    }
+    return $list
+}
+
+# ---------- 自检模式（不显示窗口，只验证数据与页面）----------
+if ($SelfTest) {
+    Write-Host "=== 环境 ==="
+    Write-Host ("  进程位数: " + $(if ([Environment]::Is64BitProcess) { '64' } else { '32' }))
+    Write-Host ("  WebView2 DLL: " + $(if (Test-Path (Join-Path $script:LibDir 'Microsoft.Web.WebView2.Core.dll')) { '已就位' } else { '缺失' }))
+    try {
+        Write-Host ("  系统注册版本: " + [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::GetAvailableBrowserVersionString())
+    } catch {
+        Write-Host ("  系统注册版本: 读取失败 - " + $_.Exception.Message)
+    }
+
+    Write-Host "=== 运行时候选 ==="
+    $cands = Get-RuntimeCandidates
+    if ($cands.Count -eq 0) {
+        Write-Host "  未找到任何 msedgewebview2.exe"
+    } else {
+        foreach ($c in $cands) { Write-Host ("  " + $c) }
+    }
+
+    Write-Host "=== 逐个尝试创建环境 ==="
+    $testDir = Join-Path $env:LOCALAPPDATA 'TokenPanel\WebView2Probe'
+    if (-not (Test-Path $testDir)) { New-Item -ItemType Directory -Path $testDir -Force | Out-Null }
+    foreach ($path in (@($null) + $cands)) {
+        $label = if ($path) { Split-Path $path -Leaf } else { '(系统注册)' }
+        try {
+            $e = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($testDir, $path, $null).GetAwaiter().GetResult()
+            Write-Host ("  ✓ " + $label.PadRight(20) + " 可用 v" + $e.BrowserVersionString)
+        } catch {
+            $m = $_.Exception.Message
+            if ($_.Exception.InnerException) { $m = $_.Exception.InnerException.Message }
+            if ($m.Length -gt 80) { $m = $m.Substring(0, 80) + '…' }
+            Write-Host ("  ✗ " + $label.PadRight(20) + " " + $m)
+        }
+    }
+
+    Write-Host "=== 配置 ==="
+    Write-Host ("账户数: " + $script:Cfg.providers.Count)
+    foreach ($p in $script:Cfg.providers) {
+        Write-Host ("  [" + $p.type + "] " + $p.name + " / " + $p.short + "  key=" + $(if (Unprotect-String $p.apiKey) { '已配置' } else { '缺失' }))
+    }
+    Write-Host "=== 数据 ==="
+    $data = Get-AllQuota -Cfg $script:Cfg
+    Write-Host ("拉取时间: " + $data.fetched_at)
+    foreach ($a in $data.accounts) {
+        if ($a.ok) {
+            $tierStr = ($a.tiers | ForEach-Object { $_.name + '=' + $_.remain + '%' }) -join ', '
+            Write-Host ("  ✓ " + $a.short + "  primary=" + $a.primary + "  [" + $tierStr + "]")
+        } else {
+            Write-Host ("  ✗ " + $a.short + "  " + $a.error)
+        }
+    }
+    Write-Host "=== 前端文件 ==="
+    foreach ($f in @('index.html', 'style.css', 'main.js')) {
+        $fp = Join-Path $script:SrcDir $f
+        Write-Host ("  " + $f + " = " + (Test-Path $fp) + "  " + $(if (Test-Path $fp) { (Get-Item $fp).Length.ToString() + ' bytes' } else { '' }))
+    }
+    exit 0
+}
+
+# ============================================================
+# 窗口
+# ============================================================
+$DOCK_W = 212
+$DOCK_H = 96
+$PAD    = 20
+
+$form = New-Object System.Windows.Forms.Form
+$form.FormBorderStyle = 'None'
+$form.StartPosition = 'Manual'
+$form.ShowInTaskbar = $false
+$form.TopMost = $true
+$form.BackColor = [System.Drawing.Color]::FromArgb(255, 0, 254)
+$form.TransparencyKey = [System.Drawing.Color]::FromArgb(255, 0, 254)
+$form.Text = 'Token 消耗'
+$form.MinimumSize = New-Object System.Drawing.Size(120, 60)
+
+# 初始位置：按配置的右下角偏移
+$wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$initW = $DOCK_W + $PAD
+$initH = $DOCK_H + $PAD
+$form.Size = New-Object System.Drawing.Size $initW, $initH
+$x = $wa.Right - $script:Cfg.dockRight - $initW
+$y = $wa.Bottom - $script:Cfg.dockBottom - $initH
+$form.Location = New-Object System.Drawing.Point $x, $y
+
+# ---------- WebView2 ----------
+$wv = New-Object Microsoft.Web.WebView2.WinForms.WebView2
+$wv.Dock = 'Fill'
+$wv.DefaultBackgroundColor = [System.Drawing.Color]::Transparent
+$form.Controls.Add($wv)
+
+# ---------- 消息处理 ----------
+$script:LastData = $null
+$script:RefreshTimer = $null
+
+function Send-ToJs {
+    param([string]$Json)
+    try {
+        if ($wv.CoreWebView2) { $wv.CoreWebView2.PostWebMessageAsJson($Json) }
+    } catch { }
+}
+
+function Resize-Window {
+    param([int]$W, [int]$H)
+    $W = [Math]::Max(120, [Math]::Min(700, $W))
+    $H = [Math]::Max(60, [Math]::Min(900, $H))
+    # 保持右下角锚点：改变尺寸时尽量不跳动
+    $form.Size = New-Object System.Drawing.Size $W, $H
+}
+
+function Save-WindowPos {
+    try {
+        $wa2 = [System.Windows.Forms.Screen]::FromControl($form).WorkingArea
+        $script:Cfg.dockRight = $wa2.Right - ($form.Location.X + $form.Width)
+        $script:Cfg.dockBottom = $wa2.Bottom - ($form.Location.Y + $form.Height)
+        Save-Config -Cfg $script:Cfg
+    } catch { }
+}
+
+function Snap-ToEdges {
+    $scr = [System.Windows.Forms.Screen]::FromControl($form)
+    if (-not $scr) { return }
+    $wa3 = $scr.WorkingArea
+    $snap = 20
+    $nx = $form.Location.X
+    $ny = $form.Location.Y
+
+    if ([Math]::Abs($form.Location.X - $wa3.Left) -lt $snap) { $nx = $wa3.Left }
+    if ([Math]::Abs(($form.Location.X + $form.Width) - $wa3.Right) -lt $snap) {
+        $nx = $wa3.Right - $form.Width
+    }
+    if ([Math]::Abs($form.Location.Y - $wa3.Top) -lt $snap) { $ny = $wa3.Top }
+    if ([Math]::Abs(($form.Location.Y + $form.Height) - $wa3.Bottom) -lt $snap) {
+        $ny = $wa3.Bottom - $form.Height
+    }
+    if ($nx -ne $form.Location.X -or $ny -ne $form.Location.Y) {
+        $form.Location = New-Object System.Drawing.Point $nx, $ny
+    }
+}
+
+$script:moveTimer = New-Object System.Windows.Forms.Timer
+$script:moveTimer.Interval = 550
+$script:moveTimer.add_Tick({
+    $script:moveTimer.Stop()
+    Snap-ToEdges
+    Save-WindowPos
+})
+$form.add_LocationChanged({
+    $script:moveTimer.Stop()
+    $script:moveTimer.Start()
+})
+
+# ---------- WebView2 消息路由 ----------
+$script:msgHandler = {
+    param($sender, $e)
+    try {
+        $msg = $e.WebMessageAsJson | ConvertFrom-Json
+        $cmd = $msg.cmd
+        $id = $msg.id
+        $args2 = $msg.args
+        $result = $null
+
+        switch ($cmd) {
+            'get_init' {
+                if ($null -eq $script:LastData) {
+                    $script:LastData = Get-AllQuota -Cfg $script:Cfg
+                }
+                $result = @{ data = $script:LastData }
+            }
+            'fetch_all' {
+                $script:LastData = Get-AllQuota -Cfg $script:Cfg
+                $result = $script:LastData
+            }
+            'resize' {
+                Resize-Window -W ([int]$args2.width) -H ([int]$args2.height)
+                $result = @{ ok = $true }
+            }
+            'drag' {
+                if ([NativeWin]) {
+                    [void][NativeWin]::ReleaseCapture()
+                    [void][NativeWin]::SendMessage($form.Handle, 0xA1, [IntPtr]2, [IntPtr]::Zero)
+                }
+                $result = @{ ok = $true }
+            }
+            'save_pos' {
+                Save-WindowPos
+                $result = @{ ok = $true }
+            }
+            'hide' {
+                $form.Hide()
+                $result = @{ ok = $true }
+            }
+            'quit' {
+                $result = @{ ok = $true }
+                Send-ToJs (@{ id = $id; result = $result } | ConvertTo-Json -Depth 8 -Compress)
+                [System.Windows.Forms.Application]::Exit()
+                return
+            }
+            default { $result = @{ error = "unknown cmd: $cmd" } }
+        }
+
+        Send-ToJs (@{ id = $id; result = $result } | ConvertTo-Json -Depth 12 -Compress)
+    } catch {
+        Write-CoreLog ('消息处理失败: ' + $_.Exception.Message)
+    }
+}
+
+# ---------- 初始化 WebView2 ----------
+# 自动发现运行时：先试系统注册的，再逐个试 EdgeCore / Edge / EdgeWebView 目录
+# 原因：本机 32 位运行时虽已注册，但 WebView2 自动检测认不出来，必须显式指定路径
+try {
+    if (-not (Test-Path $script:DataDir)) {
+        New-Item -ItemType Directory -Path $script:DataDir -Force | Out-Null
+    }
+
+    $envOpt = [Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions]::new()
+    $envOpt.AdditionalBrowserArguments = '--disable-features=msWebOOUI,msPdfOOUI --autoplay-policy=no-user-gesture-required'
+
+    $candidates = @($null) + (Get-RuntimeCandidates)
+    Write-CoreLog ('运行时候选数: ' + $candidates.Count)
+
+    $cwvEnv = $null
+    $tried = @()
+    foreach ($path in $candidates) {
+        $label = if ($path) { $path } else { '(系统注册)' }
+        try {
+            $cwvEnv = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync(
+                $script:DataDir, $path, $envOpt).GetAwaiter().GetResult()
+            Write-CoreLog ('✓ 运行时可用: ' + $label + ' v' + $cwvEnv.BrowserVersionString)
+            break
+        } catch {
+            $msg = $_.Exception.Message
+            if ($_.Exception.InnerException) { $msg = $_.Exception.InnerException.Message }
+            $tried += ($label + '  →  ' + $msg)
+            Write-CoreLog ('✗ 尝试失败 ' + $label + ': ' + $msg)
+        }
+    }
+
+    if (-not $cwvEnv) {
+        throw ("未找到可用的 WebView2 运行时。已尝试：`n`n" + ($tried -join "`n`n"))
+    }
+
+    $wv.EnsureCoreWebView2Async($cwvEnv).GetAwaiter().GetResult()
+
+    $settings = $wv.CoreWebView2.Settings
+    $settings.AreDefaultContextMenusEnabled = $false
+    $settings.IsStatusBarEnabled = $false
+    $settings.AreDevToolsEnabled = [bool]$Debug
+    $settings.IsZoomControlEnabled = $false
+    $settings.IsSwipeNavigationEnabled = $false
+    $settings.UserAgent = 'TokenPanel/3.0'
+
+    $wv.CoreWebView2.add_WebMessageReceived($script:msgHandler)
+
+    # 虚拟主机映射：绕开中文路径 + 提供安全上下文
+    $wv.CoreWebView2.SetVirtualHostNameToFolderMapping(
+        'app.local', $script:SrcDir,
+        [Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind]::Allow)
+
+    $wv.CoreWebView2.Navigate('https://app.local/index.html')
+    Write-CoreLog ('WebView2 初始化完成 v' + $script:CoreVersion)
+} catch {
+    $err = $_.Exception.Message
+    Write-CoreLog ('WebView2 初始化失败: ' + $err)
+    $shown = $err
+    if ($shown.Length -gt 900) { $shown = $shown.Substring(0, 900) + '…' }
+    [System.Windows.Forms.MessageBox]::Show(
+        "WebView2 初始化失败`n`n$shown`n`n详细日志：%APPDATA%\TokenPanel\app.log", 'TokenPanel')
+    exit 1
+}
+
+# ---------- 定时刷新 ----------
+$script:RefreshTimer = New-Object System.Windows.Forms.Timer
+$script:RefreshTimer.Interval = [Math]::Max(1, [int]$script:Cfg.refreshMinutes) * 60 * 1000
+$script:RefreshTimer.add_Tick({
+    try {
+        $script:LastData = Get-AllQuota -Cfg $script:Cfg
+        Send-ToJs (@{ event = 'quota-updated'; data = $script:LastData } | ConvertTo-Json -Depth 12 -Compress)
+    } catch {
+        Write-CoreLog ('定时刷新失败: ' + $_.Exception.Message)
+    }
+})
+$script:RefreshTimer.Start()
+
+# ---------- 显示 ----------
+$form.add_Shown({
+    $form.Activate()
+})
+
+[System.Windows.Forms.Application]::Run($form)

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Token 消耗面板 · 界面方案</title>
+<style>
+  :root{
+    --card:#1C1F27; --card2:#22262F; --line:#2E333F;
+    --tx:#E6EDF3; --tx2:#9AA5B5; --tx3:#6B7686;
+    --cy:#2DD4BF; --am:#F5A524; --rd:#F04452;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#0b0e14; color:#e6edf3; padding:44px 32px 90px;
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;
+    font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:28px;letter-spacing:-.02em;margin-bottom:8px}
+  .sub{color:var(--tx2);font-size:13.5px;margin-bottom:36px}
+  h2{font-size:18px;margin:46px 0 14px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  h2 .n{color:var(--cy);font-family:ui-monospace,Consolas,monospace;font-size:13px;margin-right:9px}
+  h3{font-size:14.5px;margin:22px 0 8px;color:var(--tx)}
+  p{margin:9px 0;color:var(--tx2);font-size:14px}
+  p b{color:var(--tx)}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:#1a212b;padding:2px 6px;border-radius:4px;color:var(--cy)}
+
+  /* 模拟桌面 */
+  .desk{
+    border-radius:14px; padding:40px 34px; margin:16px 0;
+    background:
+      radial-gradient(900px 420px at 18% 8%, #1e3a5f 0%, transparent 62%),
+      radial-gradient(760px 380px at 84% 92%, #2a1f3d 0%, transparent 60%),
+      linear-gradient(145deg,#0f141c 0%,#141a24 45%,#0d1118 100%);
+    border:1px solid #1b2230;
+    display:flex; gap:36px; align-items:flex-start; flex-wrap:wrap;
+  }
+  .desk .col{display:flex;flex-direction:column;gap:10px}
+  .desk .cap{font-size:11.5px;color:#5f6c7e;letter-spacing:.06em;text-transform:uppercase}
+
+  /* ===== 折叠态卡片 ===== */
+  .dock{
+    background:rgba(28,31,39,.97);
+    border:1px solid #2E333F;
+    border-radius:18px;
+    padding:12px 16px 10px;
+    display:flex; gap:14px; align-items:flex-start;
+    box-shadow:0 12px 34px rgba(0,0,0,.55), 0 1px 0 rgba(255,255,255,.05) inset;
+    width:max-content;
+  }
+  .acct{display:flex;flex-direction:column;align-items:center;gap:5px;width:56px}
+  .ring{
+    width:52px;height:52px;border-radius:50%;
+    display:grid;place-items:center;position:relative;
+  }
+  .ring::before{
+    content:'';position:absolute;inset:0;border-radius:50%;
+    background:conic-gradient(var(--c) 0 calc(var(--p) * 1%), rgba(255,255,255,.09) 0 100%);
+  }
+  .ring::after{
+    content:'';position:absolute;inset:4px;border-radius:50%;
+    background:#1C1F27;
+  }
+  .ring .num{
+    position:relative;z-index:1;font-size:14px;font-weight:700;
+    font-family:"Segoe UI",system-ui;color:#fff;letter-spacing:-.03em;
+  }
+  .ring .num i{font-style:normal;font-size:9px;font-weight:600;opacity:.65;margin-left:1px}
+  .lbl{
+    font-size:9px;line-height:1.25;color:#9AA5B5;
+    max-width:56px;text-align:center;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em;
+  }
+
+  /* ===== 展开态 ===== */
+  .panel{
+    width:340px;background:rgba(24,27,34,.98);
+    border:1px solid #2E333F;border-radius:16px;overflow:hidden;
+    box-shadow:0 18px 48px rgba(0,0,0,.6);
+  }
+  .panel .hd{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px 12px;border-bottom:1px solid #262c38;
+  }
+  .panel .hd .t{font-size:13px;font-weight:600;color:#E6EDF3;letter-spacing:.01em}
+  .panel .hd .acts{display:flex;gap:10px;color:#6B7686;font-size:13px}
+  .panel .bd{padding:6px 0 10px}
+  .row{padding:12px 16px;border-bottom:1px solid #22272f}
+  .row:last-child{border-bottom:none}
+  .row .top{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .row .name{font-size:12.5px;color:#E6EDF3;font-weight:600;flex:1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .big{font-size:12.5px;font-weight:700;font-family:"Segoe UI";color:#fff}
+  .bar{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .bar .k{font-size:10.5px;color:#6B7686;width:38px;flex:none}
+  .bar .track{flex:1;height:6px;border-radius:3px;background:#22262F;overflow:hidden}
+  .bar .fill{height:100%;border-radius:3px}
+  .bar .v{font-size:10.5px;color:#9AA5B5;width:30px;text-align:right;flex:none;font-family:"Segoe UI"}
+  .bar .rst{font-size:9.5px;color:#5a6577;width:62px;text-align:right;flex:none}
+
+  /* 标签方案对比 */
+  .cmp{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+  .cmp .item{background:#151920;border:1px solid #232a36;border-radius:10px;padding:16px 12px 12px;text-align:center}
+  .cmp .item .demo{display:flex;justify-content:center;margin-bottom:12px;min-height:76px;align-items:flex-start}
+  .cmp .item .nm{font-size:11.5px;font-weight:600;color:#cfd8e3;margin-bottom:5px}
+  .cmp .item .ds{font-size:11.5px;color:#7a8798;line-height:1.55;text-align:left}
+  .cmp .item.rec{border-color:#1f4d46;background:#111e1d}
+  .cmp .item.rec .nm{color:var(--cy)}
+
+  /* 展开/折叠示意 */
+  .morph{display:flex;align-items:center;gap:16px;margin:18px 0;flex-wrap:wrap}
+  .morph .arrow{color:#3d4655;font-size:20px}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #232a36;vertical-align:top}
+  th{color:#8b97a8;font-weight:600;font-size:12px}
+  td{color:#b9c4d1}
+  td b{color:#e6edf3}
+
+  .note{border-left:3px solid var(--am);background:#1c1a12;padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0;font-size:13.5px;color:#c9d2dd}
+  .note.cy{border-left-color:var(--cy);background:#0f1e1e}
+  .note.rd{border-left-color:var(--rd);background:#1e1212}
+  .note b{color:#fff}
+
+  ul{margin:8px 0 8px 20px;color:#b9c4d1;font-size:14px}
+  li{margin:5px 0}
+  li b{color:#e6edf3}
+
+  .foot{margin-top:50px;padding-top:18px;border-top:1px solid #232a36;color:#5f6c7e;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Token 消耗面板 · 界面方案</h1>
+  <div class="sub">桌面悬浮窗 · 多账户 · 1:1 实际尺寸预览（下方尺寸即真实像素，125% 缩放下会等比放大）</div>
+
+  <h2><span class="n">01</span>两种状态</h2>
+
+  <p>一个卡片，两种形态。<b>折叠态</b>是常驻桌面的一小条，<b>展开态</b>点一下变大。</p>
+
+  <div class="desk">
+    <div class="col">
+      <div class="cap">折叠态 · 212 × 96</div>
+      <div class="dock">
+        <div class="acct">
+          <div class="ring" style="--p:67;--c:#2DD4BF"><span class="num">67<i>%</i></span></div>
+          <div class="lbl">MiniMax</div>
+        </div>
+        <div class="acct">
+          <div class="ring" style="--p:45;--c:#2DD4BF"><span class="num">45<i>%</i></span></div>
+          <div class="lbl">Kimi</div>
+        </div>
+        <div class="acct">
+          <div class="ring" style="--p:12;--c:#F04452"><span class="num">12<i>%</i></span></div>
+          <div class="lbl">智谱 GLM</div>
+        </div>
+      </div>
+      <p style="font-size:11.5px;color:#5f6c7e;margin-top:2px">按住任意位置拖动 · 单击展开</p>
+    </div>
+
+    <div class="col">
+      <div class="cap">展开态 · 340 × 自适应</div>
+      <div class="panel">
+        <div class="hd">
+          <div class="t">Token 消耗</div>
+          <div class="acts"><span>⟳</span><span>—</span><span>✕</span></div>
+        </div>
+        <div class="bd">
+          <div class="row">
+            <div class="top">
+              <span class="dot" style="background:#2DD4BF"></span>
+              <span class="name">MiniMax Coding Plan</span>
+              <span class="big">67%</span>
+            </div>
+            <div class="bar">
+              <span class="k">5 小时</span>
+              <span class="track"><span class="fill" style="width:67%;background:#2DD4BF"></span></span>
+              <span class="v">67%</span>
+              <span class="rst">3.2h 后</span>
+            </div>
+            <div class="bar">
+              <span class="k">本周</span>
+              <span class="track"><span class="fill" style="width:66%;background:#2DD4BF"></span></span>
+              <span class="v">66%</span>
+              <span class="rst">4d 后</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="top">
+              <span class="dot" style="background:#2DD4BF"></span>
+              <span class="name">Kimi For Coding</span>
+              <span class="big">45%</span>
+            </div>
+            <div class="bar">
+              <span class="k">5 小时</span>
+              <span class="track"><span class="fill" style="width:45%;background:#2DD4BF"></span></span>
+              <span class="v">45%</span>
+              <span class="rst">1.8h 后</span>
+            </div>
+            <div class="bar">
+              <span class="k">本周</span>
+              <span class="track"><span class="fill" style="width:72%;background:#2DD4BF"></span></span>
+              <span class="v">72%</span>
+              <span class="rst">5d 后</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="top">
+              <span class="dot" style="background:#F04452"></span>
+              <span class="name">智谱 GLM Coding</span>
+              <span class="big" style="color:#F04452">12%</span>
+            </div>
+            <div class="bar">
+              <span class="k">5 小时</span>
+              <span class="track"><span class="fill" style="width:12%;background:#F04452"></span></span>
+              <span class="v">12%</span>
+              <span class="rst">0.4h 后</span>
+            </div>
+            <div class="bar">
+              <span class="k">本周</span>
+              <span class="track"><span class="fill" style="width:38%;background:#F5A524"></span></span>
+              <span class="v">38%</span>
+              <span class="rst">3d 后</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note cy">
+    <b>为什么折叠态用圆圈、展开态用横条？</b>
+    折叠态空间只有 96px 高，横条塞不下两个窗口的信息，圆圈能在 52px 里同时表达「比例 + 数值 + 状态色」，信息密度最高。展开态空间充裕，横条才能放下「两个窗口 + 各自重置时间」。
+  </div>
+
+  <h2><span class="n">02</span>圆圈下的小字标签怎么做好看又可读</h2>
+
+  <p>这是你特别问的点，也是这类设计最容易翻车的地方。难点在于：<b>圆圈只有 52px 宽，而账户名往往很长</b>（"MiniMax Coding Plan" 有 20 个字符）。四个方案对比：</p>
+
+  <div class="cmp">
+    <div class="item rec">
+      <div class="demo">
+        <div class="acct">
+          <div class="ring" style="--p:67;--c:#2DD4BF"><span class="num">67<i>%</i></span></div>
+          <div class="lbl">MiniMax</div>
+        </div>
+      </div>
+      <div class="nm">A · 圆圈下单行（推荐）</div>
+      <div class="ds">9px 常规字重，限宽 56px，超长省略。名称自动缩写到主品牌名。</div>
+    </div>
+    <div class="item">
+      <div class="demo">
+        <div class="acct">
+          <div class="ring" style="--p:67;--c:#2DD4BF"><span class="num">67<i>%</i></span></div>
+          <div class="lbl">MiniMax<br>Coding</div>
+        </div>
+      </div>
+      <div class="nm">B · 两行换行</div>
+      <div class="ds">能放更多字，但两行会让折叠态高度涨到 106px，且第二行容易孤字。</div>
+    </div>
+    <div class="item">
+      <div class="demo">
+        <div class="ring" style="--p:67;--c:#2DD4BF;width:64px;height:64px"><span class="num" style="font-size:15px">67<i>%</i></span></div>
+      </div>
+      <div class="nm">C · 名称放进圈内</div>
+      <div class="ds">圈内同时放数字和名称，字只能压到 7px，中文直接糊成一团。</div>
+    </div>
+    <div class="item">
+      <div class="demo">
+        <div class="acct">
+          <div class="ring" style="--p:67;--c:#2DD4BF"><span class="num">67<i>%</i></span></div>
+          <div class="lbl" style="color:#4a5566">· · ·</div>
+        </div>
+      </div>
+      <div class="nm">D · 悬停才显示</div>
+      <div class="ds">最干净，但你得挨个悬停才知道哪个是哪个，多账户场景反而低效。</div>
+    </div>
+  </div>
+
+  <h3>推荐方案 A 的可读性细节</h3>
+  <ul>
+    <li><b>字号 9px 是底线</b> —— 中文小于 9px（96 DPI）会糊，125% 缩放时 9px 约等于 11 物理像素，刚好清晰。</li>
+    <li><b>字重用 Regular，不要 Bold</b> —— 小字号下 Bold 会让笔画粘连，反而更难读。这一点和直觉相反。</li>
+    <li><b>颜色用 #9AA5B5 而非纯白</b> —— 纯白在小字号下会「发胖」产生光晕，中性灰更锐利，也不会和圈里的白色数字抢注意力。</li>
+    <li><b>智能缩写</b> —— 不靠截断，而是配置时就存一个短名：<code>MiniMax Coding Plan</code> → <code>MiniMax</code>，<code>Kimi For Coding</code> → <code>Kimi</code>。截断（"MiniMa…"）比缩写丑得多。</li>
+    <li><b>标签与圆圈间距 5px</b> —— 太近会视觉粘连，太远会让圆圈和文字失去从属关系。</li>
+    <li><b>卡片背景不透明度 ≥ 97%</b> —— 半透明背景叠在复杂壁纸上，小字立刻不可读。这是必须放弃「玻璃拟态」的地方。</li>
+  </ul>
+
+  <div class="note">
+    <b>一个反直觉但重要的取舍：不要做真透明背景。</b>
+    你可能想要那种 macOS 风格的毛玻璃悬浮窗，但小字号中文叠在半透明背景上，遇到花哨壁纸会完全糊掉。折中做法是<b>卡片接近不透明（97%），只在边缘做轻微阴影</b>——看起来仍然是「浮在桌面上」，但文字始终清晰。
+  </div>
+
+  <h2><span class="n">03</span>交互设计</h2>
+
+  <table>
+    <thead><tr><th>动作</th><th>行为</th><th>实现要点</th></tr></thead>
+    <tbody>
+      <tr><td><b>按住拖动</b></td><td>整个卡片任意位置可拖，位置实时跟手</td><td>记录按下点与窗口偏移；松手时把坐标存进配置</td></tr>
+      <tr><td><b>单击</b></td><td>折叠 ↔ 展开切换</td><td>移动距离 &lt; 4px 才算点击，否则算拖动。这个阈值很关键，不然拖动完会误触发展开</td></tr>
+      <tr><td><b>位置记忆</b></td><td>下次启动回到上次位置</td><td>存相对屏幕右下角的偏移，换分辨率不会跑到屏幕外</td></tr>
+      <tr><td><b>贴边吸附</b></td><td>拖到屏幕边缘 20px 内自动吸附</td><td>可选。加了更像「电脑管家」，但会让自由拖拽手感变差</td></tr>
+      <tr><td><b>不抢焦点</b></td><td>点击卡片时不夺走当前窗口的输入焦点</td><td>需要 Win32 <code>WS_EX_NOACTIVATE</code>，否则你在编辑器里打字，点一下卡片光标就跳走了</td></tr>
+      <tr><td><b>右键菜单</b></td><td>刷新 / 设置 / 隐藏 / 退出</td><td>复用现有托盘菜单逻辑</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="n">04</span>排序规则</h2>
+
+  <p>你说「显示排最前的 3 个」，这个「排最前」得有明确规则。三个候选：</p>
+
+  <table>
+    <thead><tr><th>规则</th><th>效果</th><th>评价</th></tr></thead>
+    <tbody>
+      <tr><td><b>按剩余百分比升序</b></td><td>最紧张的排最前（12% → 45% → 67%）</td><td class="ok">推荐。你一眼看到的就是最该关注的</td></tr>
+      <tr><td>按添加顺序</td><td>你加的顺序，稳定不变</td><td>可预测，但可能把 90% 的排前面，浪费位置</td></tr>
+      <tr><td>按消耗速度降序</td><td>掉得最快的排最前</td><td>更智能，但需要历史采样，属于 L2</td></tr>
+    </tbody>
+  </table>
+
+  <p>建议：<b>默认按剩余升序</b>，设置页给一个下拉可切「添加顺序」。同时圆圈颜色本身也编码了状态，即使排序不理想也不会误判。</p>
+
+  <h2><span class="n">05</span>技术实现：这次要不要换技术栈</h2>
+
+  <p>关键变化：<b>悬浮窗 + 圆圈 + 中文小字 + 展开动画</b>，这四件事把 WinForms 逼到了墙角。</p>
+
+  <table>
+    <thead><tr><th>能力</th><th>PowerShell + WinForms</th><th>Tauri v2 / Electron</th></tr></thead>
+    <tbody>
+      <tr><td>无边框可拖拽窗口</td><td class="ok">可以</td><td class="ok">可以</td></tr>
+      <tr><td>圆角卡片 + 阴影</td><td class="warn">Region 裁圆角可以，阴影要自绘模拟</td><td class="ok">CSS 一行</td></tr>
+      <tr><td>抗锯齿圆环</td><td class="warn">GDI+ 能画，边缘质量一般</td><td class="ok">CSS/SVG 完美</td></tr>
+      <tr><td>中文 9px 渲染</td><td class="warn">GDI+ 有点糊，字重控制粗糙</td><td class="ok">浏览器字体引擎，清晰</td></tr>
+      <tr><td>展开/折叠动画</td><td class="bad">Timer 逐帧改 Size，会抖</td><td class="ok">CSS transition，丝滑</td></tr>
+      <tr><td>内存</td><td class="ok">优化后约 70–80 MB</td><td class="ok">Tauri 40–60 / Electron 150–250</td></tr>
+      <tr><td>改造工作量</td><td class="ok">约 1 天（复用现有数据层）</td><td class="warn">Tauri 约 2 天 / Electron 约 1 天</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note rd">
+    <b>我的判断：这次该迁 Tauri 了。</b>
+    <br><br>
+    上一轮我建议「先别迁」，因为需求只是托盘一个数字，WinForms 够用。但你现在要的是<b>悬浮窗 + 圆圈 + 小字 + 动画</b>——这四项恰好全是 WinForms 的短板，而全是 Web 技术的基本功。硬用 GDI+ 自绘，你能得到 70 分的版本，但要付出比 Tauri 更多的时间去调锯齿和动画。
+    <br><br>
+    唯一代价是装一次 Rust（约 15 分钟）。考虑到这个工具你打算长期挂着，值得。
+  </div>
+
+  <h3>迁移后架构不变，只换渲染层</h3>
+  <ul>
+    <li><b>数据层原样保留</b> —— <code>Invoke-Provider</code>、6 个 <code>Parse-*</code>、DPAPI 加解密、自动探测 Key，全部可以照搬逻辑到 Rust 或 JS。</li>
+    <li><b>配置格式不变</b> —— <code>%APPDATA%\QuotaTray\config.json</code> 继续用，只是 <code>providers</code> 从单条改成多条。</li>
+    <li><b>渲染层重写</b> —— 上面这套视觉稿本身就是可直接用的 HTML/CSS，Tauri 里就是它。</li>
+    <li><b>托盘保留</b> —— 悬浮窗和托盘可以共存，托盘图标仍显示最紧张的那个。</li>
+  </ul>
+
+  <h2><span class="n">06</span>需要你确认的三点</h2>
+
+  <table>
+    <thead><tr><th>问题</th><th>我的建议</th><th>备选</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>技术栈换不换</b></td>
+        <td>Tauri v2（装 Rust 15 分钟，换来 80MB→50MB 内存 + 动效）</td>
+        <td>先用 WinForms 做到 70 分，不满意再迁</td>
+      </tr>
+      <tr>
+        <td><b>折叠态显示几个</b></td>
+        <td>3 个（你要求的），宽度 212px</td>
+        <td>2 个更紧凑（156px）/ 4 个信息更多（268px）</td>
+      </tr>
+      <tr>
+        <td><b>要不要贴边吸附</b></td>
+        <td>要，更像电脑管家</td>
+        <td>不要，自由拖拽手感更顺</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="foot">
+    视觉稿中所有尺寸为逻辑像素（96 DPI），与你 125% 缩放后的实际显示等比对应。
+    圆圈进度用 <code>conic-gradient</code> 实现，迁移到 Tauri 可直接复用。
+  </div>
+
+</div>
+</body>
+</html>
