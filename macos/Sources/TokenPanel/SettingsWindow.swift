@@ -13,6 +13,11 @@ struct Preset: Identifiable {
     let unit: String
 }
 
+struct TemplateOption: Identifiable {
+    let id: String
+    let label: String
+}
+
 enum Presets {
     static let all: [Preset] = [
         // tokenplan
@@ -68,13 +73,13 @@ enum Presets {
         all.first { $0.id == id }
     }
 
-    static let templates: [(String, String)] = [
-        ("tokenplan", "套餐额度"),
-        ("balance", "账户余额"),
-        ("official", "官方 Agent"),
-        ("general", "通用余额"),
-        ("newapi", "New API"),
-        ("custom", "自定义")
+    static let templates: [TemplateOption] = [
+        TemplateOption(id: "tokenplan", label: "套餐额度"),
+        TemplateOption(id: "balance", label: "账户余额"),
+        TemplateOption(id: "official", label: "官方 Agent"),
+        TemplateOption(id: "general", label: "通用余额"),
+        TemplateOption(id: "newapi", label: "New API"),
+        TemplateOption(id: "custom", label: "自定义")
     ]
 }
 
@@ -111,7 +116,7 @@ struct SettingsView: View {
     let onClose: () -> Void
 
     @State private var providers: [ProviderConfig]
-    @State private var selection: Int? = 0
+    @State private var selection: String?
     @State private var keyInput: String = ""
     @State private var theme: String
     @State private var refreshMinutes: Int
@@ -121,16 +126,14 @@ struct SettingsView: View {
         self.store = store
         self.onClose = onClose
         _providers = State(initialValue: store.config.providers)
+        _selection = State(initialValue: store.config.providers.first?.id)
         _theme = State(initialValue: store.config.theme)
         _refreshMinutes = State(initialValue: store.config.refreshMinutes)
     }
 
     private var currentIndex: Int? {
-        guard !providers.isEmpty,
-              let index = selection,
-              index >= 0,
-              index < providers.count else { return nil }
-        return index
+        guard let selected = selection else { return nil }
+        return providers.firstIndex { $0.id == selected }
     }
 
     var body: some View {
@@ -154,7 +157,7 @@ struct SettingsView: View {
     private var accountList: some View {
         VStack(spacing: 0) {
             List(selection: $selection) {
-                ForEach(Array(providers.enumerated()), id: \.offset) { index, provider in
+                ForEach(providers) { provider in
                     HStack(spacing: 6) {
                         Text(provider.short)
                             .font(.system(size: 11, weight: .medium))
@@ -165,12 +168,12 @@ struct SettingsView: View {
                             .lineLimit(1)
                         Spacer()
                     }
-                    .tag(Optional(index))
+                    .tag(Optional(provider.id))
                 }
             }
             .listStyle(.sidebar)
 
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Button {
                     addProvider()
                 } label: {
@@ -213,8 +216,8 @@ struct SettingsView: View {
                     }
                     field("模板") {
                         Picker("", selection: $providers[index].tpl) {
-                            ForEach(Presets.templates, id: \.0) { tpl, label in
-                                Text(label).tag(tpl)
+                            ForEach(Presets.templates) { option in
+                                Text(option.label).tag(option.id)
                             }
                         }
                         .labelsHidden()
@@ -243,7 +246,7 @@ struct SettingsView: View {
                         }
                     }
                     if providers[index].authMode == "wbprofile" {
-                        Text("WorkBuddy 用浏览器登录态查询，首次需在 Windows 版完成授权，或在本机把 .browser-profile 拷到 lib/wb/ 下。")
+                        Text("WorkBuddy 走浏览器登录态：需要把已授权的 .browser-profile 放到 lib/wb/ 下（可与 Windows 版共用）。")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
@@ -318,21 +321,23 @@ struct SettingsView: View {
     }
 
     private func addProvider() {
-        let preset = Presets.all[0]
+        guard let preset = Presets.all.first else { return }
+        let identifier = UUID().uuidString
         let newProvider = ProviderConfig(
-            id: UUID().uuidString,
+            id: identifier,
             name: preset.label,
             short: preset.short,
             tpl: preset.tpl,
             type: preset.id,
             apiUrl: preset.url,
             authMode: preset.authMode,
-            keyRef: "key-" + UUID().uuidString.prefix(8),
+            keyRef: "key-" + String(identifier.prefix(8)),
             moneyKind: preset.moneyKind,
             unit: preset.unit
         )
         providers.append(newProvider)
-        selection = providers.count - 1
+        selection = identifier
+        keyInput = ""
         message = "已添加，记得填 API Key"
     }
 
@@ -340,7 +345,11 @@ struct SettingsView: View {
         guard let index = currentIndex else { return }
         let removed = providers.remove(at: index)
         Keychain.shared.delete(removed.keyRef)
-        selection = providers.isEmpty ? nil : min(index, providers.count - 1)
+        if providers.isEmpty {
+            selection = nil
+        } else {
+            selection = providers[min(index, providers.count - 1)].id
+        }
         message = "已删除 \(removed.name)"
     }
 
@@ -348,7 +357,7 @@ struct SettingsView: View {
         if let index = currentIndex, !keyInput.isEmpty {
             Keychain.shared.set(keyInput, for: providers[index].keyRef)
         }
-        // 切换供应商时套用预设的地址/认证方式，避免手填残留
+        // 切换供应商后同步套用预设的认证方式与余额语义，避免手填残留
         for i in providers.indices {
             if let preset = Presets.find(providers[i].type) {
                 providers[i].authMode = preset.authMode
