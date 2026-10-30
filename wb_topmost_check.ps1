@@ -17,7 +17,7 @@ public class TopChk {
         EnumWindows(delegate(IntPtr h, IntPtr l) {
             if (!IsWindowVisible(h)) return true;
             var t = new StringBuilder(256); GetWindowText(h, t, 256);
-            if (t.ToString() == "Token Pocket") {
+            if (t.ToString().IndexOf("Token Pocket") >= 0) {
                 RECT r; GetWindowRect(h, out r);
                 int ex = GetWindowLong(h, -20);
                 sb.AppendLine("hwnd=" + h.ToInt64() + " ex=0x" + ex.ToString("X8") + " topmost=" + ((ex & 0x8) != 0) +

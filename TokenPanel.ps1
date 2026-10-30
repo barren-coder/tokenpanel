@@ -204,11 +204,13 @@ function Get-MoneyFontPx {
 function Get-AccountMoneyShort {
     param($Account)
     # 积分类（credits）：小圆圈里只放数字，"credits" 后缀会挤爆（展开态仍显示完整 display）
+    # 千位以上用 k 缩写：51px 圆环内径只有约 27px，"2052" 会顶到描边，"2.1k" 才留白
     if ((Get-AccountUnit $Account) -eq 'credits') {
         $m = Get-AccountMoney $Account
         if ($null -ne $m) {
-            if ($m -ge 1000) { return ('{0:N0}' -f $m) }
-            return ('{0:0.#}' -f $m)
+            if ($m -ge 10000) { return ('{0:0}k' -f ($m / 1000)) }
+            if ($m -ge 1000) { return ('{0:0.0}k' -f ($m / 1000)) }
+            return ('{0:0}' -f $m)
         }
     }
     $s = Get-AccountMoneyText $Account

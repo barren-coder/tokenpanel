@@ -958,7 +958,9 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | **v1.2.1** | 10-30 16:20 | **修「取消授权后按钮永久变灰」**：① `grab_cookie.js` 的登录轮询在 CDP 通道关闭后仍空转到 6 分钟超时 → 现在浏览器一关立即退出（写 `.auth-result.json` = cancel）；② 面板按钮状态机改为三出口收口（进程退出 / 8 分钟硬超时 / 关窗）+ 结果文件判定（不再依赖 PS 5.1 读不到的 ExitCode）；③ 授权前清残留 chrome 与 grab_cookie 进程。新增 `wb_auth_cancel_test.ps1`（结果文件 + 立即退出）与 `wb_ui_auth_test.ps1`（UIAutomation 点按钮→关浏览器→断言按钮恢复） |
 | **v1.2.2** | 10-30 16:30 | **修置顶偶发失效**（v1.1.6 遗留竞态）：同一份代码启动后 `EXSTYLE` 偶发 0x00090000（无 TOPMOST）而非 0x00090008——Show 之后几何/DPI 更新会重建句柄。在 `$form.Show()` 后加一次性定时器，1.5s / 3s / 4.5s 各补钉一次并记录「置顶补钉完成」，实测三轮均 True。测试工具整理：保留 `wb_start_only.ps1`（安全重启）/ `wb_watch_panel.ps1`（窗口存活轮询）/ `wb_topmost_check.ps1` |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.2`。
+| **v1.2.3** | 10-30 16:25 | 折叠态积分类圆圈文字改 **k 缩写**（`2052` → `2.1k`）：51px 环内径仅约 27px，4~5 位数字会顶到描边；展开态仍显示精确的 `2052.02 credits` |
+
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.3`。
 
 ---
 
