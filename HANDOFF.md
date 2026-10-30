@@ -220,6 +220,25 @@ D:\AppData\token消耗面板\
 | 855 | `Set-Template` | 切模板（含 type 合法性修正） |
 | 979 | `Save-UIToAccount` | UI → 账户对象（只存本模板用到的凭据 + scale/unit） |
 
+### 3.4 截图清单（都是当前版本的真实渲染，可随时重出）
+
+| 文件 | 内容 | 重出方式 |
+|---|---|---|
+| `shot-dock.png` | 折叠态 · 默认档（68）深色 | `-Shot` |
+| `shot-dock-small.png` | 折叠态 · 小档（51） | `dockScale` 设 0.75 后 `-Shot` |
+| `shot-dock-large.png` | 折叠态 · 大档（85） | `dockScale` 设 1.25 后 `-Shot` |
+| `shot-dock-v.png` | 折叠态 · 纵排 | `-Shot -ForceOrient v` |
+| `shot-dock-light.png` | 折叠态 · 浅色主题 | `-Shot -ForceTheme light` 后改名 |
+| `shot-dock-anim.png` | 双击刷新动效的某一帧 | `-Shot -Anim` 后改名 |
+| `shot-panel.png` | 展开态 | `-Shot` 会自动同时产出 |
+| `shot-config.png` | 配置页 · 账户 | `-ConfigShot` |
+| `shot-cfg-system.png` | 配置页 · 系统 | `-ConfigShot -ConfigPage system` |
+| `scheme-compare.png` | 排版方案 A/B/C 对比（v1.1.4 定方案的依据） | `preview-schemes.ps1` |
+
+**注意**：`-Shot` 只在 `-ForceOrient` 时改文件名，`-ForceTheme` / `-Anim` 产出的仍是
+`shot-dock.png`，需要手工改名——这也是历史上截图反复过期的原因。
+**改完 UI 必须重出这些图**，否则截图与代码不一致，比没有截图更误导人。
+
 ## 4. 架构与数据流
 
 ### 4.1 三层
