@@ -6,7 +6,7 @@
 # 应用身份（改名/改版本只需动这三行）
 # ============================================================
 $script:AppName    = 'Token Pocket'
-$script:AppVersion = '1.1.2'
+$script:AppVersion = '1.1.3'
 $script:AppChannel = '内测版'
 $script:AppId      = 'TokenPocket'
 # UserAgent 不能带空格，单独给一个
@@ -563,6 +563,7 @@ function Get-DefaultConfig {
         theme          = 'dark'            # dark | light
         uiScale        = 'auto'            # auto | 50 | 75 | 100 | 150
         dockScale      = 1.0               # 0.75 小 / 1.0 默认 / 1.25 大
+        opacity        = 1.0               # 悬浮窗不透明度：1.0 / 0.7 / 0.5 / 0.3
         moneyWarn      = 20                # 余额低于该值显示黄色（负数一律红色）
     }
 }
@@ -616,6 +617,18 @@ function Repair-Config {
     if ($Obj.uiScale -notin @('auto', '50', '75', '100', '150')) { $Obj.uiScale = 'auto' }
     $ds = 0.0
     if (-not [double]::TryParse([string]$Obj.dockScale, [ref]$ds) -or $ds -le 0) { $Obj.dockScale = 1.0 }
+    # 透明度：只允许四档，落在档位之间的值向最近的档位吸附（防手改配置写坏）
+    $op = 0.0
+    if (-not [double]::TryParse([string]$Obj.opacity, [ref]$op) -or $op -le 0) {
+        $Obj.opacity = 1.0
+    } else {
+        $best = 1.0; $bd = 9.0
+        foreach ($lv in @(1.0, 0.7, 0.5, 0.3)) {
+            $d = [Math]::Abs($op - $lv)
+            if ($d -lt $bd) { $bd = $d; $best = $lv }
+        }
+        $Obj.opacity = $best
+    }
     # 配色与折叠态显示数量
     if ($Obj.theme -notin @('dark', 'light')) { $Obj.theme = 'dark' }
     $md = 0

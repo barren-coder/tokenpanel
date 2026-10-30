@@ -264,11 +264,18 @@ function Get-LevelColor {
 # ============================================================
 # 尺寸（以下都是「逻辑像素」，绘制时统一经 S() 换算成物理像素）
 # ============================================================
-$DOCK_W = 89          # 单账户单元宽度，多账户按此横向累加
-$DOCK_H = 89
+# 折叠态单元 68×68（用户指定），内部纵向分配：
+#   上边距 7 + 圆环 40 + 环下间距 3 + 标签 11 + 下边距 7 = 68
+# 不是把 89 等比缩 —— 89 时代的 12/52/4/12 塞不进 68，必须重新配平
+$DOCK_W = 68          # 单账户单元宽度，多账户按此横向累加
+$DOCK_H = 68
 $PANEL_W = 340
-$RING_R = 26          # 圆圈半径（直径 52）
-$RING_GAP = 12
+$RING_R = 20          # 圆圈半径（直径 40，比 89 时代的 52 小 23%）
+$DOCK_PAD_TOP = 7     # 环上边距
+$DOCK_RING_GAP = 3    # 环与标签的间距
+$DOCK_LBL_H = 11      # 标签行高
+# 小于这个系数就不画账户名：51px 单元里标签只剩约 6px，糊成一团不如不画（用户确认方案 B）
+$DOCK_LBL_MIN_SCALE = 0.9
 
 # DPI 缩放因子：在窗口句柄创建后赋值（150% 屏 → 1.5）
 $script:Scale = 1.0
@@ -423,8 +430,10 @@ function Draw-Ring {
     }
 
     # 中心数字 + 小号 %（腾讯管家样式：数字大、百分号小且靠下）
-    $fs = DS 14
-    if ($Text.Length -ge 3) { $fs = DS 11 }
+    # 字号 +14%（14→16）：68px 单元里圆环只有 40px，原字号在环里显得发飘
+    # 3 位数（100）降到 12，否则会顶到环内壁
+    $fs = DS 16
+    if ($Text.Length -ge 3) { $fs = DS 12 }
     $fontNum = New-Object System.Drawing.Font 'Segoe UI', ([single]$fs), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
 
     $flagsM = [System.Windows.Forms.TextFormatFlags]::NoPadding
@@ -591,6 +600,8 @@ function Draw-Dock {
     $ringR = DS $RING_R
     $unitW = DS $DOCK_W
     $unitH = DS $DOCK_H
+    # 小档不画账户名：51px 单元里标签只有约 6px 高，笔画糊在一起反而更乱
+    $showLabel = ($script:DockScale -ge $DOCK_LBL_MIN_SCALE)
 
     for ($i = 0; $i -lt $top.Count; $i++) {
         $a = $top[$i]
@@ -605,7 +616,8 @@ function Draw-Dock {
             $oy = 0
             $cx = $ox + $unitW / 2
         }
-        $cy = $oy + (DS 12) + $ringR
+        # 有标签：圆环靠上，下面留出标签行；无标签：圆环在单元里垂直居中
+        $cy = if ($showLabel) { $oy + (DS $DOCK_PAD_TOP) + $ringR } else { $oy + $unitH / 2 }
 
         if ($a.kind -eq 'money') {
             # 余额账户也用圆环（用户明确要求），只是不画进度弧，改成细描边 + 居中金额
@@ -626,11 +638,13 @@ function Draw-Dock {
         }
 
         # 标签占满整个单元宽度（左右各留 6），比圆圈宽，能放更多字
-        $lblColor = if ($a.ok) { $Theme.Tx2 } else { $Theme.Tx3 }
-        $lx = if ($vert) { (DS 6) } else { $ox + (DS 6) }
-        $lw = if ($vert) { $W - (DS 12) } else { $unitW - (DS 12) }
-        Draw-Text -G $G -Text $a.short -Font $fontLbl -Color $lblColor `
-            -X $lx -Y ($cy + $ringR + (DS 4)) -W $lw -H (DS 12) -Align Center -Ellipsis
+        if ($showLabel) {
+            $lblColor = if ($a.ok) { $Theme.Tx2 } else { $Theme.Tx3 }
+            $lx = if ($vert) { (DS 6) } else { $ox + (DS 6) }
+            $lw = if ($vert) { $W - (DS 12) } else { $unitW - (DS 12) }
+            Draw-Text -G $G -Text $a.short -Font $fontLbl -Color $lblColor `
+                -X $lx -Y ($cy + $ringR + (DS $DOCK_RING_GAP)) -W $lw -H (DS $DOCK_LBL_H) -Align Center -Ellipsis
+        }
     }
     $fontLbl.Dispose()
 }
@@ -774,6 +788,33 @@ if ($SelfTest) {
     }
     Write-Host ("  界面缩放 = " + $script:Cfg.uiScale)
 
+    # 折叠态文字是否塞得进圆环（量化，不靠肉眼）
+    # 圆环内径 = (R - 描边) * 2；文字宽 = 数字宽 + %宽 - gap
+    Write-Host "=== 折叠态文字是否溢出圆环（逻辑像素）==="
+    $bmpM = New-Object System.Drawing.Bitmap 1, 1
+    $gM = [System.Drawing.Graphics]::FromImage($bmpM)
+    $sfM = [System.Drawing.StringFormat]::GenericTypographic
+    $innerD = ($RING_R - 4) * 2
+    $pass = 0; $total = 0
+    foreach ($ds in @(@{ N = '小'; V = 0.75 }, @{ N = '默认'; V = 1.0 }, @{ N = '大'; V = 1.25 })) {
+        $inner = $innerD * $ds.V
+        foreach ($c in @(@{ T = '58'; F = 16 }, @{ T = '100'; F = 12 }, @{ T = '5'; F = 16 })) {
+            $fsN = [single]($c.F * $ds.V)
+            $fN = New-Object System.Drawing.Font 'Segoe UI', $fsN, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+            $fP = New-Object System.Drawing.Font 'Segoe UI', ([single]($fsN * 0.62)), ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+            $wN = $gM.MeasureString($c.T, $fN, 1000, $sfM).Width
+            $wP = $gM.MeasureString('%', $fP, 1000, $sfM).Width
+            $tot = $wN + $wP - (2 * $ds.V)      # 减去 Draw-Ring 里扣掉的 overhang
+            $ok = ($tot -le $inner)
+            $total++; if ($ok) { $pass++ }
+            Write-Host ("  [" + $(if ($ok) { 'OK  ' } else { 'FAIL' }) + "] " + $ds.N.PadRight(4) +
+                " 「" + $c.T + "%」宽 " + [Math]::Round($tot, 1) + " / 内径 " + [Math]::Round($inner, 1))
+            $fN.Dispose(); $fP.Dispose()
+        }
+    }
+    $gM.Dispose(); $bmpM.Dispose()
+    Write-Host ("  通过 " + $pass + "/" + $total)
+
     Write-Host "=== 颜色逻辑边界测试 ==="
     Write-Host "  (0=青 1=黄 2=红；按使用量判断)"
     $cases = @(
@@ -820,6 +861,22 @@ $form.Text = $script:AppName
 # 所以凡是被跨窗口调用的函数，一律用 $script:MainForm 显式指名。
 $script:MainForm = $form
 
+# 悬浮窗透明度：四档 100 / 70 / 50 / 30（用户指定）。
+# 用 Form.Opacity（分层窗口）实现 —— Region 圆角与鼠标命中都不受影响，
+# 只作用于主悬浮窗，设置窗口始终不透明（否则调 30% 时自己都看不清）。
+function Preview-Opacity {
+    param([double]$V)
+    if ($V -lt 0.3) { $V = 0.3 }
+    if ($V -gt 1.0) { $V = 1.0 }
+    try { $script:MainForm.Opacity = $V } catch { }
+}
+
+# 启动时按配置恢复透明度
+$op0 = 1.0
+if ($script:Cfg.opacity) { [void][double]::TryParse([string]$script:Cfg.opacity, [ref]$op0) }
+Preview-Opacity -V $op0
+Write-CoreLog ('启动透明度 = ' + $script:MainForm.Opacity)
+
 # 取窗口实际 DPI（强制创建句柄），据此确定缩放因子
 try {
     $null = $form.Handle
@@ -854,12 +911,10 @@ function Get-WorkArea {
 function Update-WindowRegion {
     param([int]$W, [int]$H)
     $base = if ($script:Mode -eq 'dock') { [single](DS 18) } else { [single](S 18) }
-    $rtl = $base; $rtr = $base; $rbr = $base; $rbl = $base
-    if ($script:SnapEdgeV -eq 'bottom') { $rbr = 0; $rbl = 0 }
-    if ($script:SnapEdgeV -eq 'top')    { $rtl = 0; $rtr = 0 }
-    if ($script:SnapEdgeH -eq 'left')   { $rtl = 0; $rbl = 0 }
-    if ($script:SnapEdgeH -eq 'right')  { $rtr = 0; $rbr = 0 }
-    $path = New-RoundedPathEx -X 0 -Y 0 -W $W -H $H -RTL $rtl -RTR $rtr -RBR $rbr -RBL $rbl
+    # 贴边时也保持四角圆角（用户明确要求）。
+    # 之前这里会把贴边那侧的圆角置 0 做成「直角贴齐」，但视觉上反而像被切掉一块；
+    # 圆角贴边只会露出 1~2px 桌面，比直角更自然。
+    $path = New-RoundedPathEx -X 0 -Y 0 -W $W -H $H -RTL $base -RTR $base -RBR $base -RBL $base
     $script:MainForm.Region = New-Object System.Drawing.Region $path
     $path.Dispose()
 }
@@ -1073,10 +1128,12 @@ function Update-DockGeometry {
     $script:SnapEdgeH = $eH
     $script:SnapEdgeV = $eV
 
-    # 2) 方向：贴左右边 → 纵排；贴上下边 / 自由漂浮 → 横排。
-    #    只在「真的贴上竖边」时才换向，避免离边缘几十像素就自己竖起来（那样很惊悚）
+    # 2) 方向：贴左右边 **且** 窗口底边距工作区底部 ≥150 物理像素 → 纵排；否则横排。
+    #    150 是物理像素（用户明确指定），不做 S() 换算 —— 150% 屏上视觉约 100 逻辑像素。
+    #    贴住底部时距离为 0，自然横排：右下角是最常见的位置，不该被竖起来挡视线。
+    $distToBottom = $wa.Bottom - ($ny + $ch)
     $orient = 'h'
-    if ($eH -ne 'none') { $orient = 'v' }
+    if ($eH -ne 'none' -and $distToBottom -ge 150) { $orient = 'v' }
     if ($orient -ne $script:DockOrient) {
         $script:DockOrient = $orient
         if ($script:Mode -eq 'dock') { $resize = $true }
@@ -1192,9 +1249,13 @@ function Open-ConfigFile {
             # 刷新间隔可能变了，重启定时器
             $timer.Interval = [Math]::Max(1, [int]$script:Cfg.refreshMinutes) * 60 * 1000
             $timer.Stop(); $timer.Start()
+            # 透明度
+            $opv = 1.0
+            if ($script:Cfg.opacity) { [void][double]::TryParse([string]$script:Cfg.opacity, [ref]$opv) }
+            Preview-Opacity -V $opv
             Apply-Mode $script:Mode
             Refresh-Data
-            Write-CoreLog ('配置已保存并生效（浮窗 ' + $script:DockScale + '×）')
+            Write-CoreLog ('配置已保存并生效（浮窗 ' + $script:DockScale + '×，透明度 ' + $opv + '）')
         }
     } catch {
         Write-CoreLog ('打开配置页失败: ' + $_.Exception.Message)
@@ -1480,6 +1541,25 @@ if ($GeomTest) {
         return @{ X = $r.Left; Y = $r.Top; W = ($r.Right - $r.Left); H = ($r.Bottom - $r.Top); R = $r.Right; B = $r.Bottom }
     }
 
+    # 四个角是否真的被切圆：
+    # 圆角时角落像素不在 Region 内（IsVisible=false）；直角时在区域内。
+    # 比肉眼看截图可靠 —— 之前贴边被强制直角就是肉眼没发现。
+    function GT-Corners([string]$Name) {
+        $s = GT-Size
+        Update-WindowRegion -W $s.W -H $s.H
+        $reg = $script:MainForm.Region
+        if (-not $reg) { GT $Name $false 'Region 为空'; return }
+        $pts = @(
+            (New-Object System.Drawing.Point 2, 2),
+            (New-Object System.Drawing.Point ($s.W - 3), 2),
+            (New-Object System.Drawing.Point 2, ($s.H - 3)),
+            (New-Object System.Drawing.Point ($s.W - 3), ($s.H - 3))
+        )
+        $cut = 0
+        foreach ($p in $pts) { if (-not $reg.IsVisible($p)) { $cut++ } }
+        GT $Name ($cut -eq 4) ($cut.ToString() + '/4 角为圆角，吸附 ' + $script:SnapEdgeH + '/' + $script:SnapEdgeV)
+    }
+
     $wa = Get-WorkArea
     $midY = [int][Math]::Floor($wa.Top + ($wa.Bottom - $wa.Top) / 2)
     $midX = [int][Math]::Floor($wa.Left + ($wa.Right - $wa.Left) / 2)
@@ -1496,6 +1576,22 @@ if ($GeomTest) {
     $n = Get-DockCount
     GT ('纵排尺寸 = 1 列 × ' + $n + ' 行') (($r1.W -eq (DS $DOCK_W)) -and ($r1.H -eq (DS ($n * $DOCK_H)))) ($r1.W.ToString() + 'x' + $r1.H)
     GT '纵排贴齐右边缘' ($r1.R -eq $wa.Right) (($r1.R - $wa.Right).ToString() + 'px')
+    GT-Corners '贴右边后四角仍是圆角'
+
+    # 1b) 纵排门槛：贴右边但离任务栏不足 150 物理像素 → 必须保持横排（用户第 4 条）
+    $script:DockOrient = 'h'
+    $sB = GT-Size
+    GT-Place ($wa.Right - $sB.W - $gap) ($wa.Bottom - $sB.H - 149)
+    [void](Update-DockGeometry)
+    GT '贴右边 + 离底 149px → 横排' ($script:DockOrient -eq 'h') ('方向 ' + $script:DockOrient)
+
+    $script:DockOrient = 'h'
+    $sB = GT-Size
+    GT-Place ($wa.Right - $sB.W - $gap) ($wa.Bottom - $sB.H - 151)
+    [void](Update-DockGeometry)
+    GT '贴右边 + 离底 151px → 纵排' ($script:DockOrient -eq 'v') ('方向 ' + $script:DockOrient)
+    # 换回纵排尺寸，后续用例按纵排尺寸继续
+    Apply-Mode 'dock'
 
     # 2) 贴近底边（水平居中）→ 吸附 bottom + 横排
     $s1 = GT-Size
@@ -1507,6 +1603,7 @@ if ($GeomTest) {
     $r2 = GT-Size
     GT ('横排尺寸 = ' + $n + ' 列 × 1 行') (($r2.W -eq (DS ($n * $DOCK_W))) -and ($r2.H -eq (DS $DOCK_H))) ($r2.W.ToString() + 'x' + $r2.H)
     GT '横排贴齐下边缘' (($r2.B - $wa.Bottom) -eq 0) (($r2.B - $wa.Bottom).ToString() + 'px')
+    GT-Corners '贴底边后四角仍是圆角'
 
     # 3) 屏幕中间 → 不吸附、保持横排
     $s2 = GT-Size
