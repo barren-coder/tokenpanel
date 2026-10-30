@@ -31,3 +31,6 @@ __pycache__/
 # 授权结果文件（运行时产物）
 .auth-result.json
 **/.auth-result.json
+
+# 生成的快捷方式（含绝对路径，机器相关）
+*.lnk

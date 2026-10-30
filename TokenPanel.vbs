@@ -1,7 +1,7 @@
 ' ============================================================
-'  TokenPocket.vbs — 无窗口启动器
+'  TokenPanel.vbs — 无窗口启动器
 '
-'  双击本文件即可启动 Token Pocket，不会出现黑色控制台窗口。
+'  双击本文件即可启动 TokenPanel，不会出现黑色控制台窗口。
 '
 '  原理：WScript.Shell.Run 的第二个参数是「窗口模式」，
 '        0 = 完全隐藏。用它拉起 powershell.exe，
@@ -24,8 +24,8 @@ scriptPath = fso.BuildPath(baseDir, "TokenPanel.ps1")
 
 If Not fso.FileExists(scriptPath) Then
     MsgBox "找不到 TokenPanel.ps1。" & vbCrLf & vbCrLf & _
-           "请确认 TokenPocket.vbs 与程序文件在同一个文件夹里。" & vbCrLf & _
-           "当前目录：" & baseDir, 16, "Token Pocket"
+           "请确认 TokenPanel.vbs 与程序文件在同一个文件夹里。" & vbCrLf & _
+           "当前目录：" & baseDir, 16, "TokenPanel"
     WScript.Quit 1
 End If
 

@@ -1,4 +1,4 @@
-# Token Pocket — 项目交接文档
+# TokenPanel — 项目交接文档
 
 > 面向接手本项目的 Agent。读完这份文档，你应该能直接改代码、验证、交付，不需要重新摸索。
 > 最后更新：2026-10-30 13:55 ｜ 版本 v1.1.6 内测版 ｜ 文档作者：上一手 Agent
@@ -11,18 +11,18 @@
 |---|---|
 | 是什么 | Windows 桌面悬浮窗小工具，实时显示各 AI 套餐（Token Plan）的**使用量**与账户**余额** |
 | 技术栈 | PowerShell 5.1 + WinForms + GDI+ **全自绘**，零第三方依赖、零安装 |
-| 项目位置 | `D:\AppData\token消耗面板\` |
+| 项目位置 | `D:\AppData\TokenPanel\` |
 | 体积 | 约 900 KB（含截图与备份） |
 | 代码量 | 4175 行（3 个主 .ps1 + 1 个测试） |
 | 启动 | 双击 `start-token-pocket.cmd` |
-| 配置 | `%APPDATA%\TokenPocket\config.json`（**UTF-8 BOM**，见 §7.9） |
-| 日志 | `%APPDATA%\TokenPocket\app.log` |
+| 配置 | `%APPDATA%\TokenPanel\config.json`（**UTF-8 BOM**，见 §7.9） |
+| 日志 | `%APPDATA%\TokenPanel\app.log` |
 | 当前状态 | 可用。三轮共 14 条问题全部修复（§8） |
 
 **先跑这三条确认环境没坏：**
 
 ```powershell
-cd "D:\AppData\token消耗面板"
+cd "D:\AppData\TokenPanel"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\TokenPanel.ps1 -SelfTest        # 期望：颜色逻辑 10/10
 powershell -NoProfile -ExecutionPolicy Bypass -File .\test-templates.ps1              # 期望：通过 49 / 49
 powershell -NoProfile -ExecutionPolicy Bypass -File .\TokenPanel.ps1 -TestUI          # 期望：通过 16 / 16
@@ -60,8 +60,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\TokenPanel.ps1 -TestUI    
 ### 2.1 启动方式
 
 ```
-Token Pocket.lnk              ← 推荐入口，双击零闪（wscript + VBS，全程无控制台）
-TokenPocket.vbs               ← 无窗口启动器本体；也可直接双击，同样零闪
+TokenPanel.lnk              ← 推荐入口，双击零闪（wscript + VBS，全程无控制台）
+TokenPanel.vbs               ← 无窗口启动器本体；也可直接双击，同样零闪
 start-token-pocket.cmd        ← 兼容入口，内部转调 VBS；cmd 自己的控制台会闪一下（约 50ms）
 start-token-panel.cmd         ← 旧名转发 stub，保留是为了不让已有快捷方式失效
 debug-token-pocket.cmd        ← 保留控制台，启动失败时看报错
@@ -72,7 +72,7 @@ debug-token-pocket.cmd        ← 保留控制台，启动失败时看报错
 `-WindowStyle Hidden` 把它藏起来——中间那一下就是用户看到的黑窗闪。
 VBS 的 `Run cmd, 0, False` 是**从创建起就隐藏**，不存在可见阶段。
 
-**单实例保护**：`TokenPanel.ps1` 启动时抢命名 Mutex `TokenPocket_SingleInstance`，
+**单实例保护**：`TokenPanel.ps1` 启动时抢命名 Mutex `TokenPanel_SingleInstance`，
 抢不到就写日志退出。所有 `-Xxx` 验证开关会跳过该检查（否则测试会被运行中的实例挡住）。
 这条同时解决了「双击两次 → 两个悬浮窗 + 闪两轮」的问题。
 
@@ -120,7 +120,7 @@ test-shape.ps1        6 项：预设数组形态回归（防 PowerShell 解包�
 ## 3. 文件职责地图
 
 ```
-D:\AppData\token消耗面板\
+D:\AppData\TokenPanel\
 ├── TokenPanel.ps1              1088 行  ← 主程序：窗口/绘制/交互/托盘/菜单
 ├── lib\
 │   ├── QuotaCore.ps1            838 行  ← 数据层：配置/加密/HTTP/各供应商解析
@@ -434,10 +434,10 @@ CC Switch 的 extractor 返回契约（从其二进制核对）：`isValid / inv
 
 ### 5.6 开机自启
 
-写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\TokenPocket`，值：
+写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\TokenPanel`，值：
 
 ```
-powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "D:\AppData\token消耗面板\TokenPanel.ps1"
+powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "D:\AppData\TokenPanel\TokenPanel.ps1"
 ```
 
 `Set-AutostartEnabled` 会**写后回读**验证，返回 `$true/$false`。UI 层以返回值决定是否打勾——写失败就回滚显示，避免"界面勾了但注册表没写"。
@@ -946,28 +946,29 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | 托盘原型 | 10-28 | PowerShell 托盘图标版（`archive/QuotaTray.ps1`），零安装验证数据通路 |
 | v3.x | 10-29 上午 | 改桌面悬浮窗；WebView2 失败后改 WinForms 全自绘 |
 | v4.0 | 10-29 下午 | DPI 修复（PerMonitorV2 + SetWindowPos）；显示改「使用量」；多账户 |
-| v1.0.5 | 10-29 17:00 | 改名 Token Pocket + 版本号；6 模板真正区分；系统配置页（缩放/悬浮大小/开机自启） |
+| v1.0.5 | 10-29 17:00 | 改名 TokenPanel + 版本号；6 模板真正区分；系统配置页（缩放/悬浮大小/开机自启） |
 | v1.1.0 | 10-29 17:45 | 修完第一轮 6 条：缩放实时重建、浮窗实时预览、跨 DPI 自适应、提取器代码+变量、余额金额与负数红色、贴边吸附+靠边纵排；新增 `-GeomTest / -TestScale / -ForceOrient` |
 | v1.1.1 | 10-29 18:40 | 修完第二轮 6 条：余额改圆环、修 PowerShell 动态作用域导致的「设置页被压扁」、账户余额改名、手动排序+显示数量、深浅双配色、字体授权确认；新增 `-TestRescaleLive / -ForceTheme` |
 | **v1.1.2** | 10-29 19:20 | 折叠态圆环改为显示 5 小时额度（不再取两窗口最大值）；双击刷新动效（旋转光弧 + 数字跳动 + 1 秒后拉新数据）；`-TestUI` 不再把 dockScale/uiScale/theme 写进用户配置；新增 `-Shot -Anim` |
 | **v1.1.3** | 10-30 11:30 | 折叠态单元 89→**68**、数字字号 14→16、小档隐藏账户名；贴边保持四角圆角（删掉置零逻辑）；纵排加「离任务栏 ≥150 **物理**像素」门槛；新增透明度 100/70/50/30 |
 | **v1.1.4** | 10-30 12:20 | 排版精修（方案 B）：笔宽 4→**2**（用量环与余额环统一）、数字 16 Bold→**15 SemiBold**、% 比例 0.62→**0.75**、% 间距 −2→**0**、账户名 9→**8**、**数字垂直居中修正**（0.075×字号）；排版参数全部抽成常量 |
-| **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPocket.vbs` 无窗口启动器 + `Token Pocket.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
+| **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPanel.vbs` 无窗口启动器 + `TokenPanel.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
 | **v1.1.6** | 10-30 13:55 | 修复**悬浮窗不置顶**（`Form.TopMost` 未落到 `WS_EX_TOPMOST`，改为显式读-改-写样式位 + `SetWindowPos(HWND_TOPMOST)`，并在 Show / Hide→Show / 改透明度后重新断言）；新增 `diag-topmost.ps1` 探针 |
 | **v1.2.0** | 10-30 16:00 | **WorkBuddy 积分接入**（§15）：official 模板新增 workbuddy 供应商（无头 Chrome 页面内查询，绕 TLS 指纹墙）；配置页短名右侧「授权登录」按钮 + 授权状态提示；30 分钟缓存 + 401 冷却 1 小时 + 文件锁 + 孤儿 chrome 清理；新阈值 credits ≤20 红 / ≤50 黄、金额 ≤5 红（moneyCrit 进配置）；折叠态积分类圆圈只显数字。测试资产：`wb_smoke_config.ps1` / `wb_expand_shot.ps1` / `wb_shot_panel.ps1` / `wb_restart_and_shots.ps1`（后两个已并入 v1.2.2 清理，见下） |
 | **v1.2.1** | 10-30 16:20 | **修「取消授权后按钮永久变灰」**：① `grab_cookie.js` 的登录轮询在 CDP 通道关闭后仍空转到 6 分钟超时 → 现在浏览器一关立即退出（写 `.auth-result.json` = cancel）；② 面板按钮状态机改为三出口收口（进程退出 / 8 分钟硬超时 / 关窗）+ 结果文件判定（不再依赖 PS 5.1 读不到的 ExitCode）；③ 授权前清残留 chrome 与 grab_cookie 进程。新增 `wb_auth_cancel_test.ps1`（结果文件 + 立即退出）与 `wb_ui_auth_test.ps1`（UIAutomation 点按钮→关浏览器→断言按钮恢复） |
 | **v1.2.2** | 10-30 16:30 | **修置顶偶发失效**（v1.1.6 遗留竞态）：同一份代码启动后 `EXSTYLE` 偶发 0x00090000（无 TOPMOST）而非 0x00090008——Show 之后几何/DPI 更新会重建句柄。在 `$form.Show()` 后加一次性定时器，1.5s / 3s / 4.5s 各补钉一次并记录「置顶补钉完成」，实测三轮均 True。测试工具整理：保留 `wb_start_only.ps1`（安全重启）/ `wb_watch_panel.ps1`（窗口存活轮询）/ `wb_topmost_check.ps1` |
 
 | **v1.2.3** | 10-30 16:25 | 折叠态积分类圆圈文字改 **k 缩写**（`2052` → `2.1k`）：51px 环内径仅约 27px，4~5 位数字会顶到描边；展开态仍显示精确的 `2052.02 credits` |
+| **v1.3.0** | 10-30 17:20 | **整体改名 Token Pocket → TokenPanel**（原名注册不下来；中途试过 TokenPano，最终定 TokenPanel）。范围：显示名、`AppId`、配置目录 `%APPDATA%\TokenPanel`、互斥体、自启注册表值名、启动器文件（`TokenPanel.ps1` / `TokenPanel.vbs` / `start-token-panel.cmd` / `debug-token-panel.cmd`）、项目目录 `D:\AppData\TokenPanel`、发布包 `TokenPanel-1.3.0`。**两个易错点**：① `%APPDATA%\TokenPanel` 还留着 10-29 的旧配置，迁移规则改成「config.json 更新的那份胜出」，旧的改名备份；② 自启清理旧键时必须排除当前 AppId，否则刚写就被删 |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.3`。
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.3.0`。
 
 ---
 
 ## 12. 接手后的第一步
 
 ```powershell
-cd "D:\AppData\token消耗面板"
+cd "D:\AppData\TokenPanel"
 
 # 1. 确认基线没坏（7 条，全绿才动手）
 powershell -NoProfile -ExecutionPolicy Bypass -File .\TokenPanel.ps1 -SelfTest
@@ -997,7 +998,7 @@ notepad .\待优化问题.txt
 
 ⚠️ 跑任何会 `Show()` 窗口的开关前记住：`-Shot / -ConfigShot` 会读真实配置并可能触发 `Save-Config`。
 v1.1.0 已用 `$script:UserMoving` 挡住程序自身位移，但如果你改了吸附逻辑，跑完**务必确认**
-`%APPDATA%\TokenPocket\config.json` 里的 `dockRight/dockBottom` 没被写花。
+`%APPDATA%\TokenPanel\config.json` 里的 `dockRight/dockBottom` 没被写花。
 
 ---
 
@@ -1041,16 +1042,16 @@ v1.1.0 已用 `$script:UserMoving` 挡住程序自身位移，但如果你改了
 所以不能用「发布为在线链接」那套（那是给静态站点/小游戏用的，对方点了链接也跑不起来桌面程序）。
 对外分发只有两条路：**压缩包**（首发推荐）或**安装包**（Inno Setup / NSIS / WinRAR SFX）。
 
-### 当前发布物（v1.2.3，2026-10-30）
+### 当前发布物（v1.3.0，2026-10-30）
 
 ```
 release/
-├─ TokenPocket-1.2.3.zip      ← 直接发这个（约 210 KB）
-└─ TokenPocket-1.2.3/         ← zip 的源目录，改完重新打包
-   ├─ TokenPocket.vbs             ★ 推荐入口，双击启动、零黑窗
-   ├─ 创建快捷方式.cmd            ★ 生成 Token Pocket.lnk（一次性）
-   ├─ start-token-pocket.cmd      兼容入口，转调 VBS
-   ├─ debug-token-pocket.cmd      调试启动器，留窗口显示报错
+├─ TokenPanel-1.3.0.zip      ← 直接发这个（约 211 KB）
+└─ TokenPanel-1.3.0/         ← zip 的源目录，改完重新打包
+   ├─ TokenPanel.vbs             ★ 推荐入口，双击启动、零黑窗
+   ├─ 创建快捷方式.cmd            ★ 生成 TokenPanel.lnk（一次性）
+   ├─ start-token-panel.cmd       兼容入口，转调 VBS
+   ├─ debug-token-panel.cmd       调试启动器，留窗口显示报错
    ├─ make-shortcut.ps1           由「创建快捷方式.cmd」调用
    ├─ TokenPanel.ps1
    ├─ lib/QuotaCore.ps1
@@ -1061,7 +1062,7 @@ release/
    └─ 截图/（6 张）
 ```
 
-> v1.1.6 目录保留作历史快照；新版本按 `TokenPocket-<版本>` 新建目录后从 1.1.6 复制骨架再覆盖源码。
+> v1.1.6 目录保留作历史快照；新版本按 `TokenPanel-<版本>` 新建目录后从 1.1.6 复制骨架再覆盖源码。
 
 **不要打包 `.lnk`**：里面存的是开发机的绝对路径，到别人电脑上直接失效。
 包里放 `创建快捷方式.cmd`，让对方在自己机器上生成。
@@ -1070,24 +1071,24 @@ release/
 
 ```powershell
 # 0) 新版本：复制上一版目录做骨架（记得删掉旧启动器与旧版本残留）
-cd "D:\AppData\token消耗面板"
-$R = "release\TokenPocket-1.2.3"
-Copy-Item "release\TokenPocket-1.1.6" $R -Recurse
+cd "D:\AppData\TokenPanel"
+$R = "release\TokenPanel-1.3.0"
+Copy-Item "release\TokenPanel-1.1.6" $R -Recurse
 
 # 1) 同步源码到包目录（保持 md5 一致，别手改包里的副本）
 Copy-Item TokenPanel.ps1 $R -Force
 Copy-Item lib\QuotaCore.ps1,lib\ConfigWindow.ps1 "$R\lib" -Force
 New-Item -ItemType Directory "$R\lib\wb" -Force | Out-Null
 Copy-Item lib\wb\wb_query.js,lib\wb\grab_cookie.js "$R\lib\wb" -Force
-Copy-Item TokenPocket.vbs,start-token-pocket.cmd,debug-token-pocket.cmd,make-shortcut.ps1 $R -Force
+Copy-Item TokenPanel.vbs,start-token-pocket.cmd,debug-token-pocket.cmd,make-shortcut.ps1 $R -Force
 Copy-Item "创建快捷方式.cmd" $R -Force
 Copy-Item shot-dock.png,shot-dock-v.png,shot-dock-light.png,shot-panel.png,shot-config.png,shot-cfg-system.png "$R\截图" -Force
 
 # 2) 打包（用系统自带 cmdlet，不依赖 WinRAR）
-Compress-Archive -Path $R -DestinationPath "release\TokenPocket-1.2.3.zip" -Force
+Compress-Archive -Path $R -DestinationPath "release\TokenPanel-1.3.0.zip" -Force
 
 # 3) 冒烟测试（必做，见下；-Version 跟包名一致）
-powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version 1.2.3
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version 1.3.0
 ```
 
 **`smoke-release.ps1` 会做 22 项检查**（v1.2.3 起含 lib\wb 两个 JS 与 .browser-profile 排除）：解压到全新临时目录 → 校验文件清单 →
@@ -1097,7 +1098,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version
 为什么要从**全新目录**启动：能一并验证 `.vbs` 的路径解析是相对的、不依赖开发机路径。
 
 **打包前必做**（踩过的坑）：
-1. **永远不要把 `%APPDATA%\TokenPocket\config.json` 放进包**。里面是 DPAPI 加密的 API Key，
+1. **永远不要把 `%APPDATA%\TokenPanel\config.json` 放进包**。里面是 DPAPI 加密的 API Key，
    DPAPI 绑的是「当前 Windows 用户 + 机器」，别人解不开，只会得到一个打不开的配置。
    打包后一定要 `python -c "import zipfile;..."` 之类的手段核一遍清单。
 2. 排除 `*.log`、`test-*.ps1`、`HANDOFF.md`、`archive\`、`*.testbak`。
@@ -1108,7 +1109,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version
 
 | 检查项 | 怎么验 | 结果 |
 |---|---|---|
-| 真·首装（从没跑过） | 把 `$env:APPDATA` 指到临时目录再启动 | ✅ 自动建 `TokenPocket\{config.json,app.log}`，1 个示例账户，界面显示「未配置 API Key」 |
+| 真·首装（从没跑过） | 把 `$env:APPDATA` 指到临时目录再启动 | ✅ 自动建 `TokenPanel\{config.json,app.log}`，1 个示例账户，界面显示「未配置 API Key」 |
 | 配置损坏/丢失 | `Load-Config` 有 try/catch 回落默认值 | ✅ |
 | 不需要额外运行时 | 只用 PowerShell 5.1 + WinForms，Win10/11 自带 | ✅ 不用装 .NET / Python |
 | 执行策略 | 启动器带 `-ExecutionPolicy Bypass` | ✅ 不需要用户改策略 |
@@ -1124,7 +1125,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version
 
 | 方式 | 做法 | 适合 | 注意 |
 |---|---|---|---|
-| **ZIP（现在这个）** | 微信/邮件/网盘发 `TokenPocket-1.1.6.zip` | 首发、小范围 | 没有开始菜单项，用户自己跑一次「创建快捷方式.cmd」 |
+| **ZIP（现在这个）** | 微信/邮件/网盘发 `TokenPanel-1.1.6.zip` | 首发、小范围 | 没有开始菜单项，用户自己跑一次「创建快捷方式.cmd」 |
 | **WinRAR SFX 单文件 exe** | `WinRAR a -sfx -z<脚本注释>` ，注释里写 `Setup=` / `Shortcut=` | 想「一个文件搞定」 | 未签名 → SmartScreen 会弹「Windows 已保护你的电脑」，用户要点「更多信息→仍要运行」 |
 | **Inno Setup 安装包** | 写 `.iss`，装 `Inno Setup 6`（免费）后编译 | 正式对外、要卸载入口 | 本机没装 Inno Setup；同样有 SmartScreen 问题 |
 
@@ -1173,7 +1174,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version
 全部落地，验证记录见 §15.5。结构如下：
 
 1. **脚本**：`lib\wb\wb_query.js`（无头查询）+ `lib\wb\grab_cookie.js`（授权登录），登录态 profile 在 `lib\wb\.browser-profile`（**等同账号权限，不进 git、不外传**）。
-2. **数据层**（`lib\QuotaCore.ps1`）：`Invoke-WorkBuddy` / `Parse-WorkBuddy` / `Get-Save-WorkBuddyState` / `Start-WorkBuddyAuth` / `Complete-WorkBuddyAuth` / `Find-NodeExe`。运行态存 `%APPDATA%\TokenPocket\wb_state.json` + `wb_last.json`（**不能把查询 JSON 塞进 ConvertTo-Json——PS 5.1 会把 >1KB 字符串包装成 `{"value":...}` 对象**）。
+2. **数据层**（`lib\QuotaCore.ps1`）：`Invoke-WorkBuddy` / `Parse-WorkBuddy` / `Get-Save-WorkBuddyState` / `Start-WorkBuddyAuth` / `Complete-WorkBuddyAuth` / `Find-NodeExe`。运行态存 `%APPDATA%\TokenPanel\wb_state.json` + `wb_last.json`（**不能把查询 JSON 塞进 ConvertTo-Json——PS 5.1 会把 >1KB 字符串包装成 `{"value":...}` 对象**）。
 3. **护栏**：30 分钟缓存（`$script:WbCacheMin`）、401 冷却 1 小时（`$script:WbCooldownH`）、文件锁 `wb-query.lock`（PID 存活检查）、孤儿 chrome/msedge 清理（按 `lib\wb` 命令行过滤）、30 秒超时 taskkill `/T /F`、启动前 Remove 四个代理环境变量。
 4. **已踩坑**：① PS 5.1 `Start-Process -PassThru` 的 `ExitCode` 偶发为 null → 以 stdout 文件为准；② `Start-Process` 遇到大小写重复的 `HTTP_PROXY` 环境变量直接抛错；③ **取消授权卡死**（v1.2.1 修）：`grab_cookie.js` 的轮询在 CDP 通道关闭后仍 `continue` 到 6 分钟超时，面板按钮等不到进程退出就一直灰着 → 现在浏览器一关立即退出并写 `.auth-result.json`（`ok`/`cancel`/`timeout`/`fail`），面板按钮状态机三出口收口（退出 / 8 分钟硬超时 / 关窗），判定只认结果文件。
 5. **显示**：`Unit='credits'` 上色档 ≤20 红 / ≤50 黄 / 其余青；折叠态积分类圆圈只显数字（`Get-AccountMoneyShort`），展开态显示完整 "2052.02 credits" + 体验版 + 签到行。
@@ -1194,7 +1195,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1 -Version
 
 | 项 | 值 |
 |---|---|
-| 位置 | `D:\AppData\token消耗面板\.git` |
+| 位置 | `D:\AppData\TokenPanel\.git` |
 | 分支 | `main` |
 | 首个提交 | `33d94b7` — 49 文件 / 13900 行 |
 | 标签 | `v1.1.2`（指向 v1.1.2 发布状态） |
@@ -1440,7 +1441,7 @@ measure-center  四档残留 ≤0.32px 全部居中
 
 ### 19.1 根因
 
-旧启动方式：`start "Token Pocket" powershell.exe ... -WindowStyle Hidden`
+旧启动方式：`start "TokenPanel" powershell.exe ... -WindowStyle Hidden`
 
 `start` 会先给 powershell **创建一个可见的控制台窗口**，PowerShell 启动之后才执行
 `-WindowStyle Hidden` 把它藏起来。中间那一下就是用户看到的黑窗闪。
@@ -1449,10 +1450,10 @@ measure-center  四档残留 ≤0.32px 全部居中
 
 ### 19.2 解法
 
-**`TokenPocket.vbs`**：`WScript.Shell.Run cmdLine, 0, False`
+**`TokenPanel.vbs`**：`WScript.Shell.Run cmdLine, 0, False`
 第二个参数 0 = 窗口模式隐藏，**从创建起就隐藏**，不存在「先显示再隐藏」的阶段。
 
-**`Token Pocket.lnk`**：指向 `wscript` + `//nologo <vbs>`。
+**`TokenPanel.lnk`**：指向 `wscript` + `//nologo <vbs>`。
 wscript 是 GUI 子系统程序，双击不创建控制台 → 全程零窗口。
 
 **`start-token-pocket.cmd`**：改为转调 VBS。cmd 自己的控制台仍会闪一下（约 50ms），
@@ -1468,7 +1469,7 @@ wscript 是 GUI 子系统程序，双击不创建控制台 → 全程零窗口�
 实测结果：
 
 ```
-=== 通过 Token Pocket.lnk 启动 ===
+=== 通过 TokenPanel.lnk 启动 ===
   total=9 visibleConsole=0   → 控制台窗口存在但不可见
 === 通过 start-token-pocket.cmd 启动 ===
   total=9 visibleConsole=0
@@ -1479,7 +1480,7 @@ wscript 是 GUI 子系统程序，双击不创建控制台 → 全程零窗口�
 
 ### 19.4 单实例保护
 
-`TokenPanel.ps1` 启动时抢 `Mutex 'TokenPocket_SingleInstance'`（`[System.Threading.Mutex]::new`），
+`TokenPanel.ps1` 启动时抢 `Mutex 'TokenPanel_SingleInstance'`（`[System.Threading.Mutex]::new`），
 抢不到就写日志退出。所有 `-Xxx` 验证开关通过 `$script:IsTestMode` 跳过此检查，
 否则测试会被正在运行的实例挡住。
 

@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$root = 'D:\AppData\token消耗面板'
+$root = 'D:\AppData\TokenPanel'
 . (Join-Path $root 'lib\QuotaCore.ps1')
 . (Join-Path $root 'lib\ConfigWindow.ps1')
 $cfg = Get-DefaultConfig

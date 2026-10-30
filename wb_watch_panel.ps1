@@ -33,8 +33,8 @@ foreach ($p in $ps) { Stop-Process -Id $p.ProcessId -Force -ErrorAction Silently
 Start-Sleep -Seconds 2
 
 $proc = Start-Process -FilePath 'powershell.exe' `
-    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\AppData\token消耗面板\TokenPanel.ps1') `
-    -WorkingDirectory 'D:\AppData\token消耗面板' -WindowStyle Hidden -PassThru
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\AppData\TokenPanel\TokenPanel.ps1') `
+    -WorkingDirectory 'D:\AppData\TokenPanel' -WindowStyle Hidden -PassThru
 Write-Host ("panel pid=" + $proc.Id)
 
 for ($i = 0; $i -lt 15; $i++) {
@@ -44,4 +44,4 @@ for ($i = 0; $i -lt 15; $i++) {
     Write-Host ("t+" + (($i + 1) * 2) + "s  alive=" + $alive + "  windows=" + $(if ($wins) { $wins } else { '(none)' }))
 }
 Write-Host '--- app.log 末尾 10 行 ---'
-Get-Content "$env:APPDATA\TokenPocket\app.log" -Tail 10
+Get-Content "$env:APPDATA\TokenPanel\app.log" -Tail 10

@@ -777,7 +777,7 @@ function Show-ConfigWindow {
 
         $on = [bool]$swAuto.Tag
         $autoHint.Text = if ($on) {
-            '已开启：登录 Windows 后自动启动，注册表 HKCU\...\Run\TokenPocket'
+            '已开启：登录 Windows 后自动启动，注册表 HKCU\...\Run\TokenPanel'
         } else {
             '已关闭。开启后写入 HKCU\...\Run，不需要管理员权限。'
         }

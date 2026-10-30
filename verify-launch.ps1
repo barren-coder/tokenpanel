@@ -1,7 +1,7 @@
-param([string]$Target = 'start-token-pocket.cmd')
-# verify-launch.ps1 — 启动 Token Pocket 并检查是否出现「可见的控制台窗口」
+param([string]$Target = 'start-token-panel.cmd')
+# verify-launch.ps1 — 启动 TokenPanel 并检查是否出现「可见的控制台窗口」
 # 用法：powershell -File .\verify-launch.ps1                     （测 .cmd）
-#       powershell -File .\verify-launch.ps1 -Target "Token Pocket.lnk"  （测快捷方式）
+#       powershell -File .\verify-launch.ps1 -Target "TokenPanel.lnk"  （测快捷方式）
 # 判定依据：枚举该进程的所有顶层窗口，统计 class = ConsoleWindowClass 且 IsWindowVisible 的个数。
 # 期望 0 个。旧启动方式（start + -WindowStyle Hidden）会有 1 个可见控制台窗口闪过。
 Add-Type -AssemblyName System.Windows.Forms

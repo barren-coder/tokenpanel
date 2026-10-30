@@ -5,12 +5,12 @@
 # ============================================================
 # 应用身份（改名/改版本只需动这三行）
 # ============================================================
-$script:AppName    = 'Token Pocket'
-$script:AppVersion = '1.2.3'
+$script:AppName    = 'TokenPanel'
+$script:AppVersion = '1.3.0'
 $script:AppChannel = '内测版'
-$script:AppId      = 'TokenPocket'
+$script:AppId      = 'TokenPanel'
 # UserAgent 不能带空格，单独给一个
-$script:UserAgent  = 'TokenPocket/' + $script:AppVersion
+$script:UserAgent  = 'TokenPanel/' + $script:AppVersion
 
 $script:CoreVersion = '4.1'
 $script:ConfigDir   = Join-Path $env:APPDATA $script:AppId
@@ -28,12 +28,30 @@ $script:WbCacheMin  = 30        # 查询结果缓存分钟数（不再短于此�
 $script:WbCooldownH = 1         # 登录态过期（401/403）后的冷却小时数
 $script:WbTimeoutMs = 30000     # 单次查询超时（毫秒），超时强杀进程树
 
-# 旧目录（TokenPanel）自动迁移到新目录（TokenPocket）：
-# 只复制不删除，用户原有账户与密钥不丢
+# 配置目录迁移。品牌改过三次：TokenPanel(旧托盘版) → TokenPocket(v1.0.5~v1.2.3) → TokenPanel(现在)。
+# 本机实测 %APPDATA%\TokenPanel 里还留着 10-29 的陈旧配置，若按「目标不存在才复制」的旧规则，
+# 会读到那份旧账户/旧密钥。规则改成：**config.json 更新的那份胜出**，输的一份改名备份、不删除。
 try {
-    $oldDir = Join-Path $env:APPDATA 'TokenPanel'
-    if (-not (Test-Path $script:ConfigDir) -and (Test-Path $oldDir)) {
-        Copy-Item -LiteralPath $oldDir -Destination $script:ConfigDir -Recurse -Force
+    $legacies = @('TokenPocket', 'TokenPanel') | Where-Object { $_ -ne $script:AppId }
+    $curTime = if (Test-Path $script:ConfigPath) { (Get-Item $script:ConfigPath).LastWriteTimeUtc } else { [datetime]::MinValue }
+    $bestDir = $null
+    $bestTime = $curTime
+    foreach ($legacy in $legacies) {
+        $d = Join-Path $env:APPDATA $legacy
+        $c = Join-Path $d 'config.json'
+        if (Test-Path $c) {
+            $t = (Get-Item $c).LastWriteTimeUtc
+            if ($t -gt $bestTime) { $bestTime = $t; $bestDir = $d }
+        }
+    }
+    if ($bestDir) {
+        if (Test-Path $script:ConfigDir) {
+            $bak = $script:ConfigDir + '.bak-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+            Move-Item -LiteralPath $script:ConfigDir -Destination $bak -Force
+            Write-CoreLog ('旧配置目录已备份到 ' + $bak)
+        }
+        Copy-Item -LiteralPath $bestDir -Destination $script:ConfigDir -Recurse -Force
+        Write-CoreLog ('已从 ' + $bestDir + ' 迁移配置（时间更新的一份）')
     }
 } catch { }
 
@@ -91,7 +109,7 @@ function Get-TemplateDefs {
 
 # ============================================================
 # 配色（两套：深色 / 浅色，浅色对齐 Windows 11 浅色系统配色）
-#   TokenPanel 用 Get-MainTheme，配置页用 Get-CwTheme。
+#   TokenPanel.ps1 用 Get-MainTheme，配置页用 Get-CwTheme。
 #   两边键名一一对应，改配色只动这里，不要再往绘制代码里写死颜色。
 # ============================================================
 function Get-MainTheme {
@@ -689,7 +707,7 @@ function Save-Config {
     }
     $json = $Cfg | ConvertTo-Json -Depth 8
     [System.IO.File]::WriteAllText($script:ConfigPath, $json, [System.Text.Encoding]::UTF8)
-    if ($env:TOKENPOCKET_DEBUG_SAVE) {
+    if ($env:TokenPanel_DEBUG_SAVE) {
         $st = (Get-PSCallStack | ForEach-Object { $_.Command }) -join ' > '
         Write-CoreLog ('Save-Config 调用栈: ' + $st)
     }
@@ -935,7 +953,7 @@ function Parse-Custom {
 # WorkBuddy 积分（official 模板 type=workbuddy）
 # 网关按 TLS 指纹拦截普通 HTTP 客户端（同 cookie 下 curl 一律 401），
 # 必须经无头 Chrome 在页面上下文里发请求（lib\wb\wb_query.js，原理见其头注释）。
-# 运行态（结果缓存/冷却/授权时间）独立存 %APPDATA%\TokenPocket\wb_state.json，
+# 运行态（结果缓存/冷却/授权时间）独立存 %APPDATA%\TokenPanel\wb_state.json，
 # 不动 config.json 结构，配置三处同步逻辑不受影响。
 # ============================================================
 function Get-WorkBuddyState {

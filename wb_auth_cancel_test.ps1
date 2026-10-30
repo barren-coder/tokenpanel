@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Continue'
 foreach ($n in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
     if ($null -ne [Environment]::GetEnvironmentVariable($n)) { Remove-Item ("Env:" + $n) -ErrorAction SilentlyContinue }
 }
-$wbDir = 'D:\AppData\token消耗面板\lib\wb'
+$wbDir = 'D:\AppData\TokenPanel\lib\wb'
 $resultFile = Join-Path $wbDir '.auth-result.json'
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $node) {

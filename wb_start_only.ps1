@@ -8,7 +8,7 @@ $ps = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction
 foreach ($p in $ps) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 2
 $null = Start-Process -FilePath 'powershell.exe' `
-    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\AppData\token消耗面板\TokenPanel.ps1') `
-    -WorkingDirectory 'D:\AppData\token消耗面板' -WindowStyle Hidden -PassThru
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\AppData\TokenPanel\TokenPanel.ps1') `
+    -WorkingDirectory 'D:\AppData\TokenPanel' -WindowStyle Hidden -PassThru
 Start-Sleep -Seconds 12
-Get-Content "$env:APPDATA\TokenPocket\app.log" -Tail 5
+Get-Content "$env:APPDATA\TokenPanel\app.log" -Tail 5

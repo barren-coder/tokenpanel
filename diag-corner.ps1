@@ -40,7 +40,7 @@ public class Diag {
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host '=== 启动程序 ==='
-Invoke-Item (Join-Path $root 'Token Pocket.lnk')
+Invoke-Item (Join-Path $root 'TokenPanel.lnk')
 
 function Get-AppProc {
     Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |

@@ -1,4 +1,4 @@
-# wb_topmost_check.ps1 — 读 Token Pocket 窗口扩展样式，判断 WS_EX_TOPMOST 是否在位
+# wb_topmost_check.ps1 — 读 TokenPanel 窗口扩展样式，判断 WS_EX_TOPMOST 是否在位
 $ErrorActionPreference = 'Continue'
 Add-Type -TypeDefinition @"
 using System;
@@ -17,7 +17,7 @@ public class TopChk {
         EnumWindows(delegate(IntPtr h, IntPtr l) {
             if (!IsWindowVisible(h)) return true;
             var t = new StringBuilder(256); GetWindowText(h, t, 256);
-            if (t.ToString().IndexOf("Token Pocket") >= 0) {
+            if (t.ToString().IndexOf("TokenPanel") >= 0) {
                 RECT r; GetWindowRect(h, out r);
                 int ex = GetWindowLong(h, -20);
                 sb.AppendLine("hwnd=" + h.ToInt64() + " ex=0x" + ex.ToString("X8") + " topmost=" + ((ex & 0x8) != 0) +
@@ -30,4 +30,4 @@ public class TopChk {
 }
 "@
 $s = [TopChk]::Scan()
-if ($s) { Write-Host $s.TrimEnd() } else { Write-Host '未找到 Token Pocket 窗口' }
+if ($s) { Write-Host $s.TrimEnd() } else { Write-Host '未找到 TokenPanel 窗口' }

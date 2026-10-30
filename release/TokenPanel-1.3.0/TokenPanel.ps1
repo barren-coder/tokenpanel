@@ -146,9 +146,40 @@ function Get-MoneyHex {
         $tmp = 0.0
         if ([double]::TryParse([string]$script:Cfg.moneyWarn, [ref]$tmp)) { $warn = $tmp }
     }
-    if ($Money -lt 0) { return $Theme.Rd }
+    # 红色档（2026-10-30 定案）：≤ moneyCrit(默认5) 红，负数（欠费）也红
+    $crit = 5.0
+    if ($script:Cfg.moneyCrit) {
+        $tmp2 = 0.0
+        if ([double]::TryParse([string]$script:Cfg.moneyCrit, [ref]$tmp2)) { $crit = $tmp2 }
+    }
+    if ($Money -lt 0 -or $Money -le $crit) { return $Theme.Rd }
     if ($Money -lt $warn) { return $Theme.Am }
     return $Theme.Cy
+}
+
+# 账户的计量单位：'credits' = WorkBuddy 积分类（阈值独立于 ¥ 金额档）
+function Get-AccountUnit {
+    param($Account)
+    if (-not $Account) { return '' }
+    foreach ($t in @($Account.tiers)) {
+        if ($t.unit) { return [string]$t.unit }
+    }
+    return ''
+}
+
+# 余额上色统一入口（2026-10-30 定案阈值）：
+#   ¥ 金额档  ：≤5 红（负数也红）/ < moneyWarn(默认20) 黄 / 其余青
+#   credits 档：≤20 红 / ≤50 黄 / 其余青
+function Get-BalanceHex {
+    param($Money, [string]$Unit = '')
+    if ($null -eq $Money) { return $Theme.Tx3 }
+    if ($Unit -eq 'credits') {
+        $c = [double]$Money
+        if ($c -le 20) { return $Theme.Rd }
+        if ($c -le 50) { return $Theme.Am }
+        return $Theme.Cy
+    }
+    return (Get-MoneyHex $Money)
 }
 
 function Get-AccountMoneyText {
@@ -172,6 +203,16 @@ function Get-MoneyFontPx {
 # 圆环里只放「当前金额」，不要 "$1.00 / $1.50" 这种长串
 function Get-AccountMoneyShort {
     param($Account)
+    # 积分类（credits）：小圆圈里只放数字，"credits" 后缀会挤爆（展开态仍显示完整 display）
+    # 千位以上用 k 缩写：51px 圆环内径只有约 27px，"2052" 会顶到描边，"2.1k" 才留白
+    if ((Get-AccountUnit $Account) -eq 'credits') {
+        $m = Get-AccountMoney $Account
+        if ($null -ne $m) {
+            if ($m -ge 10000) { return ('{0:0}k' -f ($m / 1000)) }
+            if ($m -ge 1000) { return ('{0:0.0}k' -f ($m / 1000)) }
+            return ('{0:0}' -f $m)
+        }
+    }
     $s = Get-AccountMoneyText $Account
     if ($s -and $s.Contains('/')) {
         $s = ($s -split '/')[0].Trim()
@@ -649,8 +690,9 @@ function Draw-Dock {
 
         if ($a.kind -eq 'money') {
             # 余额账户也用圆环（用户明确要求），只是不画进度弧，改成细描边 + 居中金额
+            # credits 账户（WorkBuddy）走积分阈值档（≤20 红 / ≤50 黄）
             $money = Get-AccountMoney $a
-            $mcol = if ($a.ok) { Get-MoneyHex $money } else { $Theme.Tx3 }
+            $mcol = if ($a.ok) { Get-BalanceHex $money (Get-AccountUnit $a) } else { $Theme.Tx3 }
             $txt = if ($a.ok) { Get-AccountMoneyShort $a } else { '--' }
             if ($script:AnimActive) { $txt = Get-FlickerText $txt }
             Draw-MoneyRing -G $G -Cx $cx -Cy $cy -Text $txt -ColorHex $mcol
@@ -712,9 +754,9 @@ function Draw-Panel {
         $usedAcc = Get-MaxUsed $a
         $lvAcc = Get-AccountLevel $a
         $isMoneyAcc = ($a.kind -eq 'money')
-        # 色点跟着账户状态走：余额账户看金额（负数红），额度账户看最严重窗口的等级
+        # 色点跟着账户状态走：余额账户看金额（credits 走积分档阈值），额度账户看最严重窗口的等级
         $color = if (-not $a.ok) { $Theme.Tx3 }
-                 elseif ($isMoneyAcc) { Get-MoneyHex (Get-AccountMoney $a) }
+                 elseif ($isMoneyAcc) { Get-BalanceHex (Get-AccountMoney $a) (Get-AccountUnit $a) }
                  else { Get-LevelHex $lvAcc }
 
         # 色点
@@ -729,7 +771,7 @@ function Draw-Panel {
 
         if ($isMoney) {
             $bigTxt = if ($a.ok) { Get-AccountMoneyText $a } else { '—' }
-            $bigColor = if ($a.ok) { Get-MoneyHex (Get-AccountMoney $a) } else { $Theme.Tx3 }
+            $bigColor = if ($a.ok) { Get-BalanceHex (Get-AccountMoney $a) (Get-AccountUnit $a) } else { $Theme.Tx3 }
         } else {
             $bigTxt = if ($usedAcc -ge 0) { "$usedAcc%" } else { '—' }
             $bigColor = if ($lvAcc -ge 2) { $Theme.Rd } elseif ($lvAcc -ge 1) { $Theme.Am } else { $Theme.RingText }
@@ -747,10 +789,13 @@ function Draw-Panel {
         } elseif ($isMoney) {
             # 余额账户只有一个「窗口」，金额已经显示在右上角，这里只留语义标签
             foreach ($t in $tiers) {
-                $mhex = if ($null -ne $t.money) { Get-MoneyHex ([double]$t.money) } else { $Theme.Tx3 }
+                $mhex = if ($null -ne $t.money) { Get-BalanceHex ([double]$t.money) ([string]$t.unit) } else { $Theme.Tx3 }
                 Draw-Text -G $G -Text $t.name -Font $fontTiny -Color $Theme.Tx3 -X (S 30) -Y $by -W (S 60) -H (S 14)
                 if ($null -ne $t.money -and [double]$t.money -lt 0) {
                     Draw-Text -G $G -Text '已欠费' -Font $fontMoney -Color $mhex -X (S 96) -Y $by -W (S 80) -H (S 14)
+                } elseif ($t.display) {
+                    # 积分/签到等无进度条的 tier：右侧显示状态文本（如「今日未签到」）
+                    Draw-Text -G $G -Text ([string]$t.display) -Font $fontTiny -Color $mhex -X (S 96) -Y $by -W ($W - (S 96) - (S 16)) -H (S 14)
                 }
                 $by += (S 22)
             }
@@ -895,7 +940,7 @@ $script:IsTestMode = [bool]($SelfTest -or $Shot -or $Demo -or $DumpMenu -or $Con
 if (-not $script:IsTestMode) {
     try {
         $createdNew = $false
-        $script:InstanceMutex = [System.Threading.Mutex]::new($true, 'TokenPocket_SingleInstance', [ref]$createdNew)
+        $script:InstanceMutex = [System.Threading.Mutex]::new($true, 'TokenPanel_SingleInstance', [ref]$createdNew)
         if (-not $createdNew) {
             Write-CoreLog '已有实例在运行，本次启动直接退出（单实例保护）'
             exit 0
@@ -1361,7 +1406,7 @@ function Get-AutostartCommand {
     # 用 VBS 启动器，而不是直接调 powershell：
     # 直接调 powershell 即使带 -WindowStyle Hidden，开机时仍会闪一下控制台
     # （窗口先创建、再隐藏）。VBS 的窗口模式 0 是从创建起就隐藏，全程无窗。
-    $vbsPath = Join-Path $script:Root 'TokenPocket.vbs'
+    $vbsPath = Join-Path $script:Root 'TokenPanel.vbs'
     return 'wscript.exe //nologo "' + $vbsPath + '"'
 }
 
@@ -1375,14 +1420,16 @@ function Get-AutostartEnabled {
 function Set-AutostartEnabled {
     param([bool]$Enable)
     $ok = $false
+    # 清掉改名前的旧键，避免开机启动两次。
+    # 注意 AppId 现在就叫 TokenPanel，必须排除自身，否则会把刚写的值删掉。
+    $legacyNames = @('TokenPocket', 'TokenPano', 'TokenPanel') | Where-Object { $_ -ne $script:AppId }
     try {
         if ($Enable) {
             Set-ItemProperty -Path $script:RunKey -Name $script:AppId -Value (Get-AutostartCommand) -Force
-            # 清掉改名前的旧值，避免开机启动两次
-            Remove-ItemProperty -Path $script:RunKey -Name 'TokenPanel' -ErrorAction SilentlyContinue
+            foreach ($ln in $legacyNames) { Remove-ItemProperty -Path $script:RunKey -Name $ln -ErrorAction SilentlyContinue }
         } else {
             Remove-ItemProperty -Path $script:RunKey -Name $script:AppId -ErrorAction SilentlyContinue
-            Remove-ItemProperty -Path $script:RunKey -Name 'TokenPanel' -ErrorAction SilentlyContinue
+            foreach ($ln in $legacyNames) { Remove-ItemProperty -Path $script:RunKey -Name $ln -ErrorAction SilentlyContinue }
         }
         $ok = ((Get-AutostartEnabled) -eq $Enable)
         Write-CoreLog ('开机自启 = ' + $Enable + '（回验 ' + $(if ($ok) { '成功' } else { '失败' }) + '）')
@@ -1946,5 +1993,33 @@ if ($Shot) {
 $form.Show()
 # 句柄此时才真正创建完成，属性设置期间设的 TopMost 可能没落到位，这里显式钉一次
 Assert-TopMost
+# 自愈看护：实测同一份代码偶发 0x00090000（无置顶）与 0x00090008（正常），
+# 属于启动时序竞态（外部进程对同一窗口设置则必定成功）。
+# 所以每 2 秒检查一次，连续两次到位就停；最多看护 60 秒。
+$script:topMostTimer = New-Object System.Windows.Forms.Timer
+$script:topMostTimer.Interval = 2000
+$script:topMostTicks = 0
+$script:topMostOkStreak = 0
+$script:topMostTimer.Add_Tick({
+    $script:topMostTicks++
+    Assert-TopMost
+    $ex = [NativeWin]::GetWindowLong($form.Handle, -20)
+    if (($ex -band 0x8) -ne 0) {
+        $script:topMostOkStreak++
+        if ($script:topMostOkStreak -ge 2) {
+            $script:topMostTimer.Stop()
+            $script:topMostTimer.Dispose()
+            Write-CoreLog ('置顶补钉完成 EXSTYLE=0x' + $ex.ToString('X8') + '（第 ' + $script:topMostTicks + ' 次检查）')
+        }
+    } else {
+        $script:topMostOkStreak = 0
+        if ($script:topMostTicks -ge 30) {
+            $script:topMostTimer.Stop()
+            $script:topMostTimer.Dispose()
+            Write-CoreLog ('置顶补钉失败 EXSTYLE=0x' + $ex.ToString('X8') + '（60 秒内始终未置顶）')
+        }
+    }
+})
+$script:topMostTimer.Start()
 Write-CoreLog ('置顶断言后 EXSTYLE=0x' + ([NativeWin]::GetWindowLong($form.Handle, -20)).ToString('X8'))
 [System.Windows.Forms.Application]::Run($form)

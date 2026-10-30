@@ -940,7 +940,7 @@ $script:IsTestMode = [bool]($SelfTest -or $Shot -or $Demo -or $DumpMenu -or $Con
 if (-not $script:IsTestMode) {
     try {
         $createdNew = $false
-        $script:InstanceMutex = [System.Threading.Mutex]::new($true, 'TokenPocket_SingleInstance', [ref]$createdNew)
+        $script:InstanceMutex = [System.Threading.Mutex]::new($true, 'TokenPanel_SingleInstance', [ref]$createdNew)
         if (-not $createdNew) {
             Write-CoreLog '已有实例在运行，本次启动直接退出（单实例保护）'
             exit 0
@@ -1406,7 +1406,7 @@ function Get-AutostartCommand {
     # 用 VBS 启动器，而不是直接调 powershell：
     # 直接调 powershell 即使带 -WindowStyle Hidden，开机时仍会闪一下控制台
     # （窗口先创建、再隐藏）。VBS 的窗口模式 0 是从创建起就隐藏，全程无窗。
-    $vbsPath = Join-Path $script:Root 'TokenPocket.vbs'
+    $vbsPath = Join-Path $script:Root 'TokenPanel.vbs'
     return 'wscript.exe //nologo "' + $vbsPath + '"'
 }
 
@@ -1420,14 +1420,16 @@ function Get-AutostartEnabled {
 function Set-AutostartEnabled {
     param([bool]$Enable)
     $ok = $false
+    # 清掉改名前的旧键，避免开机启动两次。
+    # 注意 AppId 现在就叫 TokenPanel，必须排除自身，否则会把刚写的值删掉。
+    $legacyNames = @('TokenPocket', 'TokenPano', 'TokenPanel') | Where-Object { $_ -ne $script:AppId }
     try {
         if ($Enable) {
             Set-ItemProperty -Path $script:RunKey -Name $script:AppId -Value (Get-AutostartCommand) -Force
-            # 清掉改名前的旧值，避免开机启动两次
-            Remove-ItemProperty -Path $script:RunKey -Name 'TokenPanel' -ErrorAction SilentlyContinue
+            foreach ($ln in $legacyNames) { Remove-ItemProperty -Path $script:RunKey -Name $ln -ErrorAction SilentlyContinue }
         } else {
             Remove-ItemProperty -Path $script:RunKey -Name $script:AppId -ErrorAction SilentlyContinue
-            Remove-ItemProperty -Path $script:RunKey -Name 'TokenPanel' -ErrorAction SilentlyContinue
+            foreach ($ln in $legacyNames) { Remove-ItemProperty -Path $script:RunKey -Name $ln -ErrorAction SilentlyContinue }
         }
         $ok = ((Get-AutostartEnabled) -eq $Enable)
         Write-CoreLog ('开机自启 = ' + $Enable + '（回验 ' + $(if ($ok) { '成功' } else { '失败' }) + '）')
@@ -1991,19 +1993,31 @@ if ($Shot) {
 $form.Show()
 # 句柄此时才真正创建完成，属性设置期间设的 TopMost 可能没落到位，这里显式钉一次
 Assert-TopMost
-# 兜底：Show 之后几何更新/DPI 变化可能重建句柄，把 TOPMOST 位弄丢。
-# 实测同一份代码偶发 0x00090000（无置顶）与 0x00090008（正常），属竞态。
-# 用一次性定时器在启动后 1.5s / 3s / 4.5s 各补钉一次，之后自动停。
+# 自愈看护：实测同一份代码偶发 0x00090000（无置顶）与 0x00090008（正常），
+# 属于启动时序竞态（外部进程对同一窗口设置则必定成功）。
+# 所以每 2 秒检查一次，连续两次到位就停；最多看护 60 秒。
 $script:topMostTimer = New-Object System.Windows.Forms.Timer
-$script:topMostTimer.Interval = 1500
+$script:topMostTimer.Interval = 2000
 $script:topMostTicks = 0
+$script:topMostOkStreak = 0
 $script:topMostTimer.Add_Tick({
     $script:topMostTicks++
     Assert-TopMost
-    if ($script:topMostTicks -ge 3) {
-        $script:topMostTimer.Stop()
-        $script:topMostTimer.Dispose()
-        Write-CoreLog ('置顶补钉完成 EXSTYLE=0x' + ([NativeWin]::GetWindowLong($form.Handle, -20)).ToString('X8'))
+    $ex = [NativeWin]::GetWindowLong($form.Handle, -20)
+    if (($ex -band 0x8) -ne 0) {
+        $script:topMostOkStreak++
+        if ($script:topMostOkStreak -ge 2) {
+            $script:topMostTimer.Stop()
+            $script:topMostTimer.Dispose()
+            Write-CoreLog ('置顶补钉完成 EXSTYLE=0x' + $ex.ToString('X8') + '（第 ' + $script:topMostTicks + ' 次检查）')
+        }
+    } else {
+        $script:topMostOkStreak = 0
+        if ($script:topMostTicks -ge 30) {
+            $script:topMostTimer.Stop()
+            $script:topMostTimer.Dispose()
+            Write-CoreLog ('置顶补钉失败 EXSTYLE=0x' + $ex.ToString('X8') + '（60 秒内始终未置顶）')
+        }
     }
 })
 $script:topMostTimer.Start()

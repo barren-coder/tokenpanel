@@ -1,5 +1,5 @@
 Add-Type -AssemblyName System.Security
-. 'D:\AppData\token消耗面板\lib\QuotaCore.ps1'
+. 'D:\AppData\TokenPanel\lib\QuotaCore.ps1'
 
 $cfgPath = $script:ConfigPath
 Copy-Item $cfgPath ($cfgPath + '.bak') -Force

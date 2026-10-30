@@ -4,7 +4,7 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
 
-$root = 'D:\AppData\token消耗面板'
+$root = 'D:\AppData\TokenPanel'
 $wbDir = Join-Path $root 'lib\wb'
 
 function Find-Window([string]$name) {
@@ -40,7 +40,7 @@ $p = Start-Process -FilePath 'powershell.exe' `
 $win = $null
 for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 500
-    $win = Find-Window 'Token Pocket · 设置'
+    $win = Find-Window 'TokenPanel · 设置'
     if ($win) { break }
 }
 if (-not $win) { Write-Host '[FAIL] 配置页窗口没起来'; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; exit 1 }

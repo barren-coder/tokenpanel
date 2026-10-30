@@ -1,4 +1,4 @@
-# wb_shot_panel.ps1 — Token Pocket 悬浮窗截屏（模糊匹配 + 虚拟屏兜底）
+# wb_shot_panel.ps1 — TokenPanel 悬浮窗截屏（模糊匹配 + 虚拟屏兜底）
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -47,7 +47,7 @@ $shot = Join-Path $env:TEMP 'wb_panel_dock.png'
 $captured = $false
 foreach ($line in ($hits -split "`n")) {
     $parts = $line.Split('|')
-    if ($parts.Count -ge 5 -and $parts[0] -like '*Token Pocket*') {
+    if ($parts.Count -ge 5 -and $parts[0] -like '*TokenPanel*') {
         $l = [int]$parts[1]; $t = [int]$parts[2]; $r = [int]$parts[3]; $b = [int]$parts[4]
         if ($r -gt $l -and $b -gt $t) {
             $w = $r - $l; $h = $b - $t

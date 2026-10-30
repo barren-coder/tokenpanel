@@ -1,8 +1,8 @@
 @echo off
 rem ============================================================
-rem  Token Pocket launcher
+rem  TokenPanel launcher
 rem
-rem  双击启动。真正的启动动作交给 TokenPocket.vbs，
+rem  双击启动。真正的启动动作交给 TokenPanel.vbs，
 rem  这样不会出现黑色控制台窗口一闪而过。
 rem
 rem  操作方式：
@@ -19,13 +19,13 @@ if not exist "TokenPanel.ps1" (
     exit /b 1
 )
 
-if not exist "TokenPocket.vbs" (
-    echo [ERROR] TokenPocket.vbs not found in this folder.
+if not exist "TokenPanel.vbs" (
+    echo [ERROR] TokenPanel.vbs not found in this folder.
     pause
     exit /b 1
 )
 
 rem 用 VBS 拉起，窗口模式 0 = 隐藏，避免控制台闪烁
-wscript.exe //nologo "TokenPocket.vbs"
+wscript.exe //nologo "TokenPanel.vbs"
 
 exit /b 0
