@@ -945,36 +945,95 @@ function Show-ConfigWindow {
     }
 
     # ---- WorkBuddy 授权登录（短名右侧按钮）：弹 headful Chrome，登录成功自动关窗 ----
+    # 状态机：三个出口（进程退出 / 8 分钟硬超时 / 窗口关闭）都必须把按钮恢复成可点，
+    # 否则用户取消一次授权就再也点不了了（2026-10-30 用户报的真实 bug）。
+    $script:wbAuthTimer = $null
+    $script:wbAuthProc = $null
+    $script:wbAuthDeadline = $null
+
+    function Stop-WbAuthWatch {
+        if ($script:wbAuthTimer) {
+            try { $script:wbAuthTimer.Stop(); $script:wbAuthTimer.Dispose() } catch { }
+            $script:wbAuthTimer = $null
+        }
+    }
+
+    function Complete-WbAuthWatch {
+        param([string]$Text = '', [string]$ColorKey = 'Tx3')
+        Stop-WbAuthWatch
+        $btnAuth.Enabled = $true
+        $btnAuth.Text = '授权登录'
+        if ($Text) {
+            $statusText.Text = $Text
+            $statusText.ForeColor = switch ($ColorKey) {
+                'Cy' { CC $CW.Cy }
+                'Am' { CC $CW.Am }
+                'Rd' { CC $CW.Rd }
+                default { CC $CW.Tx3 }
+            }
+        }
+    }
+
     $btnAuth.Add_Click({
         if ($script:CurTpl -ne 'official' -or $script:CurType -ne 'workbuddy') { return }
+        if ($script:wbAuthTimer) { return }   # 已在授权中，避免重复开窗口
         $btnAuth.Enabled = $false
+        $btnAuth.Text = '授权中…'
         $statusText.ForeColor = CC $CW.Tx
-        $statusText.Text = '正在弹出浏览器，请在页面里登录 WorkBuddy（登录成功后窗口自动关闭）…'
+        $statusText.Text = '正在弹出浏览器，请在页面里登录 WorkBuddy（直接关掉浏览器窗口 = 取消授权）…'
         $p = Start-WorkBuddyAuth
         if (-not $p) {
-            $btnAuth.Enabled = $true
-            $statusText.ForeColor = CC $CW.Am
-            $statusText.Text = '授权启动失败：未找到 node.exe。'
+            Complete-WbAuthWatch -Text '授权启动失败：未找到 node.exe。' -ColorKey 'Am'
             return
         }
-        $timer = New-Object System.Windows.Forms.Timer
-        $timer.Interval = 2000
-        $timer.Add_Tick({
-            if (-not $p.HasExited) { return }
-            $timer.Stop(); $timer.Dispose()
-            $btnAuth.Enabled = $true
-            # ExitCode 偶发读不到（PS 5.1），以 profile 是否就绪为准
-            if (($p.ExitCode -eq 0 -or $null -eq $p.ExitCode) -and (Test-WbProfileReady)) {
+        $script:wbAuthProc = $p
+        $script:wbAuthDeadline = (Get-Date).AddMinutes(8)
+        $script:wbAuthTimer = New-Object System.Windows.Forms.Timer
+        $script:wbAuthTimer.Interval = 1500
+        $script:wbAuthTimer.Add_Tick({
+            $proc = $script:wbAuthProc
+            if (-not $proc) { Stop-WbAuthWatch; return }
+            if (-not $proc.HasExited) {
+                # 硬超时兜底：grab_cookie 自身 6 分钟超时，这里再兜一层，任何情况按钮都能恢复
+                if ($script:wbAuthDeadline -and (Get-Date) -gt $script:wbAuthDeadline) {
+                    try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch { }
+                    $script:wbAuthProc = $null
+                    Complete-WbAuthWatch -Text '授权等待超时（8 分钟），可重新点击重试。' -ColorKey 'Am'
+                }
+                return
+            }
+            $code = $proc.ExitCode
+            $script:wbAuthProc = $null
+            # 判定以 grab_cookie 写的 .auth-result.json 为准（PS 5.1 读 ExitCode 不可靠）
+            $res = Get-WorkBuddyAuthResult
+            $kind = if ($res) { [string]$res.result } else { '' }
+            if ($kind -eq 'ok' -or ($kind -eq '' -and $code -eq 0)) {
                 Complete-WorkBuddyAuth
                 Update-OfficialHint
-                $statusText.ForeColor = CC $CW.Cy
-                $statusText.Text = '✓ 授权成功。点「测试脚本」可立即查询积分。'
+                Complete-WbAuthWatch -Text '✓ 授权成功。点「测试脚本」可立即查询积分。' -ColorKey 'Cy'
+            } elseif ($kind -eq 'cancel' -or $code -eq 3) {
+                Complete-WbAuthWatch -Text '已取消授权（浏览器窗口被关闭），可重新点击重试。' -ColorKey 'Am'
+            } elseif ($kind -eq 'timeout') {
+                Complete-WbAuthWatch -Text '授权超时（6 分钟内未检测到登录），可重新点击重试。' -ColorKey 'Am'
+            } elseif ($kind -eq 'fail') {
+                $why = if ($res -and $res.detail) { $res.detail } else { '未知原因' }
+                Complete-WbAuthWatch -Text ('授权失败：' + $why + '，可重新点击重试。') -ColorKey 'Am'
             } else {
-                $statusText.ForeColor = CC $CW.Am
-                $statusText.Text = ('授权未完成（退出码 ' + $p.ExitCode + '），登录超时或窗口被关闭，可重试。')
+                Complete-WbAuthWatch -Text ('授权未完成（退出码 ' + $code + '），可重新点击重试。') -ColorKey 'Am'
             }
         })
-        $timer.Start()
+        $script:wbAuthTimer.Start()
+    })
+
+    # 关窗 = 取消授权：停掉轮询、杀掉本次 node、顺手清残留浏览器，别让后台留东西
+    $form.Add_FormClosed({
+        Stop-WbAuthWatch
+        $proc = $script:wbAuthProc
+        $script:wbAuthProc = $null
+        if ($proc -and -not $proc.HasExited) {
+            try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch { }
+        }
+        Clear-WorkBuddyOrphans
     })
 
     function Apply-TemplateLayout {

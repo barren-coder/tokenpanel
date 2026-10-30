@@ -6,7 +6,7 @@
 # 应用身份（改名/改版本只需动这三行）
 # ============================================================
 $script:AppName    = 'Token Pocket'
-$script:AppVersion = '1.2.0'
+$script:AppVersion = '1.2.1'
 $script:AppChannel = '内测版'
 $script:AppId      = 'TokenPocket'
 # UserAgent 不能带空格，单独给一个
@@ -977,6 +977,35 @@ function Test-WbProfileReady {
     return (Test-Path (Join-Path $script:WbDir '.browser-profile'))
 }
 
+# 读授权结果文件（grab_cookie.js 写，面板读）。
+# 不用进程退出码：PS 5.1 的 Start-Process -PassThru 读出来恒为 null，会把「取消」误判成「成功」。
+# 返回 @{ result='ok'|'cancel'|'timeout'|'fail'; detail=''; at='' } 或 $null
+function Get-WorkBuddyAuthResult {
+    $p = Join-Path $script:WbDir '.auth-result.json'
+    if (-not (Test-Path $p)) { return $null }
+    try {
+        $j = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+        return @{ result = [string]$j.result; detail = [string]$j.detail; at = [string]$j.at }
+    } catch { return $null }
+}
+
+# 清理上次异常残留：挂着我们 profile 的 chrome/msedge + 还在跑 grab_cookie.js 的 node。
+# 授权前必须清，否则旧 Chrome 占着 profile，新实例起不来（之前会表现为「点了没反应」）。
+function Clear-WorkBuddyOrphans {
+    foreach ($exeName in @('chrome.exe', 'msedge.exe')) {
+        $stale = @(Get-CimInstance Win32_Process -Filter "Name='$exeName'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like ('*' + $script:WbDir + '*') })
+        foreach ($p in $stale) {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $nodes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*grab_cookie.js*' })
+    foreach ($p in $nodes) {
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Find-NodeExe {
     $cmd = Get-Command node -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -1069,13 +1098,7 @@ function Invoke-WorkBuddy {
     [System.IO.File]::WriteAllText($lockFile, [string]$PID)
     try {
         # 孤儿兜底：只清挂着我们自己 profile 目录的残留 chrome / msedge
-        foreach ($exeName in @('chrome.exe', 'msedge.exe')) {
-            $stale = @(Get-CimInstance Win32_Process -Filter "Name='$exeName'" -ErrorAction SilentlyContinue |
-                Where-Object { $_.CommandLine -like ('*' + $script:WbDir + '*') })
-            foreach ($p in $stale) {
-                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
-            }
-        }
+        Clear-WorkBuddyOrphans
 
         # 环境变量重复键坑：系统注入的 HTTP_PROXY/http_proxy 大小写重复会让
         # Start-Process -RedirectStandardOutput 直接报错（HANDOFF §15）
@@ -1131,6 +1154,11 @@ function Start-WorkBuddyAuth {
             Remove-Item ("Env:" + $name) -ErrorAction SilentlyContinue
         }
     }
+    # 先清上次取消/崩溃留下的 Chrome 与 grab_cookie 进程，否则 profile 被占、新窗口起不来
+    Clear-WorkBuddyOrphans
+    # 清掉上一轮的结果文件，避免把旧结果当成本轮结果
+    $oldResult = Join-Path $script:WbDir '.auth-result.json'
+    if (Test-Path $oldResult) { Remove-Item $oldResult -Force -ErrorAction SilentlyContinue }
     $outFile = Join-Path $script:ConfigDir 'wb-auth-out.txt'
     $errFile = Join-Path $script:ConfigDir 'wb-auth-err.txt'
     try {

@@ -955,8 +955,9 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPocket.vbs` 无窗口启动器 + `Token Pocket.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
 | **v1.1.6** | 10-30 13:55 | 修复**悬浮窗不置顶**（`Form.TopMost` 未落到 `WS_EX_TOPMOST`，改为显式读-改-写样式位 + `SetWindowPos(HWND_TOPMOST)`，并在 Show / Hide→Show / 改透明度后重新断言）；新增 `diag-topmost.ps1` 探针 |
 | **v1.2.0** | 10-30 16:00 | **WorkBuddy 积分接入**（§15）：official 模板新增 workbuddy 供应商（无头 Chrome 页面内查询，绕 TLS 指纹墙）；配置页短名右侧「授权登录」按钮 + 授权状态提示；30 分钟缓存 + 401 冷却 1 小时 + 文件锁 + 孤儿 chrome 清理；新阈值 credits ≤20 红 / ≤50 黄、金额 ≤5 红（moneyCrit 进配置）；折叠态积分类圆圈只显数字。测试资产：`wb_smoke_config.ps1` / `wb_expand_shot.ps1` / `wb_shot_panel.ps1` / `wb_restart_and_shots.ps1` |
+| **v1.2.1** | 10-30 16:20 | **修「取消授权后按钮永久变灰」**：① `grab_cookie.js` 的登录轮询在 CDP 通道关闭后仍空转到 6 分钟超时 → 现在浏览器一关立即退出（写 `.auth-result.json` = cancel）；② 面板按钮状态机改为三出口收口（进程退出 / 8 分钟硬超时 / 关窗）+ 结果文件判定（不再依赖 PS 5.1 读不到的 ExitCode）；③ 授权前清残留 chrome 与 grab_cookie 进程。新增 `wb_auth_cancel_test.ps1`（结果文件 + 立即退出）与 `wb_ui_auth_test.ps1`（UIAutomation 点按钮→关浏览器→断言按钮恢复） |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.0`。
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.1`。
 
 ---
 
@@ -1161,7 +1162,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-release.ps1
 1. **脚本**：`lib\wb\wb_query.js`（无头查询）+ `lib\wb\grab_cookie.js`（授权登录），登录态 profile 在 `lib\wb\.browser-profile`（**等同账号权限，不进 git、不外传**）。
 2. **数据层**（`lib\QuotaCore.ps1`）：`Invoke-WorkBuddy` / `Parse-WorkBuddy` / `Get-Save-WorkBuddyState` / `Start-WorkBuddyAuth` / `Complete-WorkBuddyAuth` / `Find-NodeExe`。运行态存 `%APPDATA%\TokenPocket\wb_state.json` + `wb_last.json`（**不能把查询 JSON 塞进 ConvertTo-Json——PS 5.1 会把 >1KB 字符串包装成 `{"value":...}` 对象**）。
 3. **护栏**：30 分钟缓存（`$script:WbCacheMin`）、401 冷却 1 小时（`$script:WbCooldownH`）、文件锁 `wb-query.lock`（PID 存活检查）、孤儿 chrome/msedge 清理（按 `lib\wb` 命令行过滤）、30 秒超时 taskkill `/T /F`、启动前 Remove 四个代理环境变量。
-4. **已踩坑**：① PS 5.1 `Start-Process -PassThru` 的 `ExitCode` 偶发为 null → 以 stdout 文件为准；② `Start-Process` 遇到大小写重复的 `HTTP_PROXY` 环境变量直接抛错。
+4. **已踩坑**：① PS 5.1 `Start-Process -PassThru` 的 `ExitCode` 偶发为 null → 以 stdout 文件为准；② `Start-Process` 遇到大小写重复的 `HTTP_PROXY` 环境变量直接抛错；③ **取消授权卡死**（v1.2.1 修）：`grab_cookie.js` 的轮询在 CDP 通道关闭后仍 `continue` 到 6 分钟超时，面板按钮等不到进程退出就一直灰着 → 现在浏览器一关立即退出并写 `.auth-result.json`（`ok`/`cancel`/`timeout`/`fail`），面板按钮状态机三出口收口（退出 / 8 分钟硬超时 / 关窗），判定只认结果文件。
 5. **显示**：`Unit='credits'` 上色档 ≤20 红 / ≤50 黄 / 其余青；折叠态积分类圆圈只显数字（`Get-AccountMoneyShort`），展开态显示完整 "2052.02 credits" + 体验版 + 签到行。
 6. **用户配置**：WB 账户已加入 config.json（排第一位）；旧配置的 `moneyCrit` 由 `Repair-Config` 自动补齐。
 
