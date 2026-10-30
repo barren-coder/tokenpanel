@@ -58,10 +58,10 @@ enum Theme {
     )
 
     /// 当前主题由配置的 theme 字段决定，默认深色（与 Windows 版一致）。
-    static var current: Palette = .dark
+    static var current: Palette = Theme.dark
 
     static func apply(_ name: String) {
-        current = (name.lowercased() == "light") ? .light : .dark
+        current = (name.lowercased() == "light") ? Theme.light : Theme.dark
     }
 }
 
