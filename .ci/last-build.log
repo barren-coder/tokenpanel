@@ -1,0 +1,14 @@
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version-76B232A4806BA581.txt
+[3/5] Compiling TokenPanel AppDelegate.swift
+/Users/runner/work/tokenpanel/tokenpanel/macos/Sources/TokenPanel/Theme.swift:61:36: error: type 'Palette' has no member 'dark'
+    static var current: Palette = .dark
+                                  ~^~~~
+/Users/runner/work/tokenpanel/tokenpanel/macos/Sources/TokenPanel/Theme.swift:64:53: error: type 'Palette' has no member 'light'
+        current = (name.lowercased() == "light") ? .light : .dark
+                                                   ~^~~~~
+/Users/runner/work/tokenpanel/tokenpanel/macos/Sources/TokenPanel/Theme.swift:64:62: error: type 'Palette' has no member 'dark'
+        current = (name.lowercased() == "light") ? .light : .dark
+                                                            ~^~~~
+error: fatalError
