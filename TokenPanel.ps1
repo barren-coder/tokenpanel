@@ -1989,5 +1989,21 @@ if ($Shot) {
 $form.Show()
 # 句柄此时才真正创建完成，属性设置期间设的 TopMost 可能没落到位，这里显式钉一次
 Assert-TopMost
+# 兜底：Show 之后几何更新/DPI 变化可能重建句柄，把 TOPMOST 位弄丢。
+# 实测同一份代码偶发 0x00090000（无置顶）与 0x00090008（正常），属竞态。
+# 用一次性定时器在启动后 1.5s / 3s / 4.5s 各补钉一次，之后自动停。
+$script:topMostTimer = New-Object System.Windows.Forms.Timer
+$script:topMostTimer.Interval = 1500
+$script:topMostTicks = 0
+$script:topMostTimer.Add_Tick({
+    $script:topMostTicks++
+    Assert-TopMost
+    if ($script:topMostTicks -ge 3) {
+        $script:topMostTimer.Stop()
+        $script:topMostTimer.Dispose()
+        Write-CoreLog ('置顶补钉完成 EXSTYLE=0x' + ([NativeWin]::GetWindowLong($form.Handle, -20)).ToString('X8'))
+    }
+})
+$script:topMostTimer.Start()
 Write-CoreLog ('置顶断言后 EXSTYLE=0x' + ([NativeWin]::GetWindowLong($form.Handle, -20)).ToString('X8'))
 [System.Windows.Forms.Application]::Run($form)

@@ -954,10 +954,11 @@ PowerShell 函数查变量是动态作用域——找「调用方」的局部变
 | **v1.1.4** | 10-30 12:20 | 排版精修（方案 B）：笔宽 4→**2**（用量环与余额环统一）、数字 16 Bold→**15 SemiBold**、% 比例 0.62→**0.75**、% 间距 −2→**0**、账户名 9→**8**、**数字垂直居中修正**（0.075×字号）；排版参数全部抽成常量 |
 | **v1.1.5** | 10-30 12:40 | 启动不再闪黑窗：新增 `TokenPocket.vbs` 无窗口启动器 + `Token Pocket.lnk` 零闪快捷方式；新增**单实例保护**（Mutex）；自启命令改走 VBS；清理 7 张冗余截图 |
 | **v1.1.6** | 10-30 13:55 | 修复**悬浮窗不置顶**（`Form.TopMost` 未落到 `WS_EX_TOPMOST`，改为显式读-改-写样式位 + `SetWindowPos(HWND_TOPMOST)`，并在 Show / Hide→Show / 改透明度后重新断言）；新增 `diag-topmost.ps1` 探针 |
-| **v1.2.0** | 10-30 16:00 | **WorkBuddy 积分接入**（§15）：official 模板新增 workbuddy 供应商（无头 Chrome 页面内查询，绕 TLS 指纹墙）；配置页短名右侧「授权登录」按钮 + 授权状态提示；30 分钟缓存 + 401 冷却 1 小时 + 文件锁 + 孤儿 chrome 清理；新阈值 credits ≤20 红 / ≤50 黄、金额 ≤5 红（moneyCrit 进配置）；折叠态积分类圆圈只显数字。测试资产：`wb_smoke_config.ps1` / `wb_expand_shot.ps1` / `wb_shot_panel.ps1` / `wb_restart_and_shots.ps1` |
+| **v1.2.0** | 10-30 16:00 | **WorkBuddy 积分接入**（§15）：official 模板新增 workbuddy 供应商（无头 Chrome 页面内查询，绕 TLS 指纹墙）；配置页短名右侧「授权登录」按钮 + 授权状态提示；30 分钟缓存 + 401 冷却 1 小时 + 文件锁 + 孤儿 chrome 清理；新阈值 credits ≤20 红 / ≤50 黄、金额 ≤5 红（moneyCrit 进配置）；折叠态积分类圆圈只显数字。测试资产：`wb_smoke_config.ps1` / `wb_expand_shot.ps1` / `wb_shot_panel.ps1` / `wb_restart_and_shots.ps1`（后两个已并入 v1.2.2 清理，见下） |
 | **v1.2.1** | 10-30 16:20 | **修「取消授权后按钮永久变灰」**：① `grab_cookie.js` 的登录轮询在 CDP 通道关闭后仍空转到 6 分钟超时 → 现在浏览器一关立即退出（写 `.auth-result.json` = cancel）；② 面板按钮状态机改为三出口收口（进程退出 / 8 分钟硬超时 / 关窗）+ 结果文件判定（不再依赖 PS 5.1 读不到的 ExitCode）；③ 授权前清残留 chrome 与 grab_cookie 进程。新增 `wb_auth_cancel_test.ps1`（结果文件 + 立即退出）与 `wb_ui_auth_test.ps1`（UIAutomation 点按钮→关浏览器→断言按钮恢复） |
+| **v1.2.2** | 10-30 16:30 | **修置顶偶发失效**（v1.1.6 遗留竞态）：同一份代码启动后 `EXSTYLE` 偶发 0x00090000（无 TOPMOST）而非 0x00090008——Show 之后几何/DPI 更新会重建句柄。在 `$form.Show()` 后加一次性定时器，1.5s / 3s / 4.5s 各补钉一次并记录「置顶补钉完成」，实测三轮均 True。测试工具整理：保留 `wb_start_only.ps1`（安全重启）/ `wb_watch_panel.ps1`（窗口存活轮询）/ `wb_topmost_check.ps1` |
 
-**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.1`。
+**版本号规则**：以后每次改动递增，只改 `lib/QuotaCore.ps1` 顶部的 `$script:AppVersion` 一行。当前 `1.2.2`。
 
 ---
 
