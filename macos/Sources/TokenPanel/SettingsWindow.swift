@@ -246,7 +246,7 @@ struct SettingsView: View {
                         }
                     }
                     if providers[index].authMode == "wbprofile" {
-                        Text("WorkBuddy 走浏览器登录态：需要把已授权的 .browser-profile 放到 lib/wb/ 下（可与 Windows 版共用）。")
+                        Text("WorkBuddy 登录态目录：~/Library/Application Support/TokenPanel/wb/.browser-profile（可从 Windows 版 lib/wb/ 直接拷过来）")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
