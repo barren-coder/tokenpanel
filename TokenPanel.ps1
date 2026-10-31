@@ -32,6 +32,7 @@ $ErrorActionPreference = 'Stop'
 $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:LibDir = Join-Path $script:Root 'lib'
 
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Security
@@ -40,6 +41,7 @@ $nativeSrc = @'
 using System;
 using System.Runtime.InteropServices;
 using System.Drawing;
+using System.Drawing.Imaging;
 
 public class NativeWin {
     [DllImport("user32.dll")]
@@ -67,6 +69,91 @@ public class NativeWin {
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")]
     public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    // ============================================================
+    // 分层窗口：圆角抗锯齿
+    //
+    // 原来的做法是 Form.Region = Region(圆角路径)，走 SetWindowRgn。
+    // 那是 1 位掩码 —— 像素只有「在窗口内 / 不在」两种状态，没有半透明过渡，
+    // 曲线二值化之后必然出现台阶（就是用户看到的毛刺）。
+    //
+    // 改成 UpdateLayeredWindow：整窗内容是一张 32bpp ARGB 位图，
+    // 圆角边缘按覆盖率输出 alpha，由 DWM 合成，任意半径都是平滑的。
+    // ============================================================
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
+    [DllImport("user32.dll")]
+    public static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, IntPtr pptDst,
+        ref SIZE psize, IntPtr hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
+
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct SIZE { public int cx; public int cy; }
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct BLENDFUNCTION { public byte BlendOp; public byte BlendFlags; public byte SourceConstantAlpha; public byte AlphaFormat; }
+
+    const int GWL_EXSTYLE = -20;
+    const int WS_EX_LAYERED = 0x00080000;
+
+    public static void EnableLayered(IntPtr hwnd) {
+        int ex = GetWindowLong(hwnd, GWL_EXSTYLE);
+        if ((ex & WS_EX_LAYERED) == 0) SetWindowLong(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED);
+    }
+
+    // 推一帧到窗口表面。alpha = 整体不透明度（0-255），等价于原来的 Form.Opacity，
+    // 但不会像 Form.Opacity 那样把整块画面压成灰。
+    public static bool PushLayered(IntPtr hwnd, Bitmap bmp, byte alpha) {
+        int w = bmp.Width, h = bmp.Height;
+        BitmapData bd = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        try {
+            int len = bd.Stride * h;
+            byte[] buf = new byte[len];
+            Marshal.Copy(bd.Scan0, buf, 0, len);
+            // UpdateLayeredWindow 要的是预乘 alpha，GDI+ 给的是直通 alpha，这里逐像素乘一次
+            for (int i = 0; i < len; i += 4) {
+                byte a = buf[i + 3];
+                if (a == 0) { buf[i] = 0; buf[i + 1] = 0; buf[i + 2] = 0; }
+                else if (a != 255) {
+                    buf[i]     = (byte)(buf[i]     * a / 255);
+                    buf[i + 1] = (byte)(buf[i + 1] * a / 255);
+                    buf[i + 2] = (byte)(buf[i + 2] * a / 255);
+                }
+            }
+            Marshal.Copy(buf, 0, bd.Scan0, len);
+        } finally { bmp.UnlockBits(bd); }
+
+        IntPtr screenDc = GetDC(IntPtr.Zero);
+        IntPtr memDc = CreateCompatibleDC(screenDc);
+        IntPtr hBmp = bmp.GetHbitmap(Color.FromArgb(0));
+        IntPtr old = SelectObject(memDc, hBmp);
+        SIZE size; size.cx = w; size.cy = h;
+        POINT src; src.X = 0; src.Y = 0;
+        BLENDFUNCTION blend;
+        blend.BlendOp = 0; blend.BlendFlags = 0;
+        blend.SourceConstantAlpha = alpha; blend.AlphaFormat = 1;   // AC_SRC_ALPHA
+        bool ok = UpdateLayeredWindow(hwnd, screenDc, IntPtr.Zero, ref size, memDc, ref src, 0, ref blend, 2);
+        SelectObject(memDc, old);
+        DeleteObject(hBmp);
+        DeleteDC(memDc);
+        ReleaseDC(IntPtr.Zero, screenDc);
+        return ok;
+    }
+
+    // Win11 圆角兜底（分层窗口不可用时才走）：DWMWA_WINDOW_CORNER_PREFERENCE = 33
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int val, int size);
+
+    public static bool EnableDwmRound(IntPtr hwnd) {
+        try {
+            int v = 2;   // DWMWCP_ROUND
+            return DwmSetWindowAttribute(hwnd, 33, ref v, 4) == 0;
+        } catch { return false; }
+    }
+
+    public static int OsBuild() { return Environment.OSVersion.Version.Build; }
 }
 
 // 右键菜单配色（深/浅两套，由 Light 字段切换）
@@ -968,6 +1055,14 @@ $form.Text = $script:AppName
 # 所以凡是被跨窗口调用的函数，一律用 $script:MainForm 显式指名。
 $script:MainForm = $form
 
+# 应用图标：窗口 / 任务栏 / Alt-Tab 统一用 TokenPanel.ico（内含 16~256 七档，
+# 小尺寸是单独绘制的加粗版，不是从大图缩下来的）。文件缺失时退回系统默认图标。
+$script:AppIconPath = Join-Path $script:Root 'TokenPanel.ico'
+if (Test-Path $script:AppIconPath) {
+    try { $form.Icon = New-Object System.Drawing.Icon($script:AppIconPath) } catch { }
+}
+
+
 # 悬浮窗透明度：四档 100 / 70 / 50 / 30（用户指定）。
 # 用 Form.Opacity（分层窗口）实现 —— Region 圆角与鼠标命中都不受影响，
 # 只作用于主悬浮窗，设置窗口始终不透明（否则调 30% 时自己都看不清）。
@@ -975,8 +1070,14 @@ function Preview-Opacity {
     param([double]$V)
     if ($V -lt 0.3) { $V = 0.3 }
     if ($V -gt 1.0) { $V = 1.0 }
-    try { $script:MainForm.Opacity = $V } catch { }
-    # 改 Opacity 会走 WinForms 的分层窗口路径，置顶位可能被顺手清掉，重新断言一次
+    $script:Opacity = $V
+    if ($script:Layered) {
+        # 分层模式：不透明度直接乘进 alpha，圆角依旧锐利，不会像 Form.Opacity 那样整块发灰
+        Refresh-UI
+    } else {
+        try { $script:MainForm.Opacity = $V } catch { }
+    }
+    # 改不透明度/重画都可能顺手清掉置顶位，重新断言一次
     Assert-TopMost
 }
 
@@ -1026,6 +1127,40 @@ try {
 } catch { }
 $form.Controls.Add($canvas)
 
+# ---------- 开启分层合成（失败自动降级到 DWM / Region） ----------
+if ($env:TOKENPANEL_NO_LAYERED -ne '1') {
+    try {
+        # 顺序很关键：先让 WinForms 把 Opacity 归 1，
+        # 否则后面再设 Opacity=1.0 会走 Form.Opacity 的清理逻辑，把 WS_EX_LAYERED 位一起抹掉
+        $script:MainForm.Opacity = 1.0
+        [NativeWin]::EnableLayered($script:MainForm.Handle)
+        $script:Layered = $true
+        Write-CoreLog '合成方式 = 分层窗口（UpdateLayeredWindow，圆角抗锯齿）'
+    } catch {
+        $script:Layered = $false
+        Write-CoreLog ('分层窗口不可用: ' + $_.Exception.Message)
+    }
+}
+if (-not $script:Layered) {
+    try {
+        if ([NativeWin]::OsBuild() -ge 22000) {
+            $script:DwmRound = [NativeWin]::EnableDwmRound($script:MainForm.Handle)
+        }
+    } catch { $script:DwmRound = $false }
+    if ($script:DwmRound) { Write-CoreLog '合成方式 = Win11 DWM 圆角（半径由系统决定）' }
+    else { Write-CoreLog '合成方式 = Region 硬裁剪（圆角会有台阶）' }
+} else {
+    # 句柄被重建（改 DPI / 主题 / ShowInTaskbar 等）会丢掉 WS_EX_LAYERED，重建后补回来
+    $form.add_HandleCreated({
+        try {
+            if ($script:Layered) {
+                [NativeWin]::EnableLayered($script:MainForm.Handle)
+                Refresh-UI
+            }
+        } catch { }
+    })
+}
+
 # ---------- 取窗口当前所在屏的可用区域 ----------
 function Get-WorkArea {
     $r = New-Object NativeWin+RECT
@@ -1038,16 +1173,111 @@ function Get-WorkArea {
     return $scr.WorkingArea
 }
 
-# ---------- 按吸附的边削平圆角 ----------
+# ============================================================
+# 圆角与画面合成（三级降级）
+#   1) 分层窗口 UpdateLayeredWindow —— 任意半径、真抗锯齿（首选）
+#   2) Win11 DWM 系统圆角        —— 分层不可用时兜底，半径由系统定（约 8px）
+#   3) SetWindowRgn 硬裁剪       —— 最后兜底，会有台阶（老行为）
+# 用环境变量 TOKENPANEL_NO_LAYERED=1 可强制走 2/3，便于对比排查。
+# ============================================================
+$script:Opacity  = if ($null -eq $script:Opacity) { 1.0 } else { $script:Opacity }
+# 注意：这里不能再把 $script:Layered 置回 $false —— 初始化在画布创建之后（见「开启分层合成」），
+# 本段代码在其后执行，重置会把刚打开的开关又关掉，窗口就变成一块全透明的空窗。
+if ($null -eq $script:Layered)  { $script:Layered  = $false }
+if ($null -eq $script:DwmRound) { $script:DwmRound = $false }
+$script:Surface  = $null
+$script:SurfaceG = $null
+
+function Get-CornerRadius {
+    if ($script:Mode -eq 'dock') { return [single](DS 18) }
+    return [single](S 18)
+}
+
 function Update-WindowRegion {
     param([int]$W, [int]$H)
-    $base = if ($script:Mode -eq 'dock') { [single](DS 18) } else { [single](S 18) }
+    # 分层模式下形状由 alpha 决定，不能再设 Region（Region 会盖掉抗锯齿）
+    if ($script:Layered) {
+        if ($script:MainForm.Region) { $script:MainForm.Region = $null }
+        return
+    }
+    # Win11 走 DWM 圆角：必须不设 Region，否则系统圆角不生效
+    if ($script:DwmRound) {
+        if ($script:MainForm.Region) { $script:MainForm.Region = $null }
+        return
+    }
+    $base = Get-CornerRadius
     # 贴边时也保持四角圆角（用户明确要求）。
     # 之前这里会把贴边那侧的圆角置 0 做成「直角贴齐」，但视觉上反而像被切掉一块；
     # 圆角贴边只会露出 1~2px 桌面，比直角更自然。
     $path = New-RoundedPathEx -X 0 -Y 0 -W $W -H $H -RTL $base -RTR $base -RBR $base -RBL $base
     $script:MainForm.Region = New-Object System.Drawing.Region $path
     $path.Dispose()
+}
+
+# 画一帧。AlphaEdge=$true 时整张画布从全透明开始，用抗锯齿路径填底色，
+# 圆角外的像素 alpha=0（平滑 + 鼠标穿透）；=$false 时按老方式整块填底色。
+function Draw-Scene {
+    param($G, [single]$W, [single]$H, [bool]$AlphaEdge)
+    $G.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $G.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    $G.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+    if ($AlphaEdge) {
+        $G.Clear([System.Drawing.Color]::Transparent)
+        $rad = Get-CornerRadius
+        $bgPath = New-RoundedPathEx -X 0 -Y 0 -W $W -H $H -RTL $rad -RTR $rad -RBR $rad -RBL $rad
+        $bgBrush = New-Object System.Drawing.SolidBrush (C $Theme.Bg)
+        $G.FillPath($bgBrush, $bgPath)
+        $bgBrush.Dispose(); $bgPath.Dispose()
+    } else {
+        $G.Clear((C $Theme.Bg))
+    }
+
+    # 深色下方块与背景的色差已经足够，不画描边（曾经 1px #2E333F 会显成白边）；
+    # 浅色下白窗贴白墙看不见，必须补一条极淡的描边
+    if ($script:Mode -eq 'dock') {
+        Draw-Dock -G $G -W $W -H $H
+    } else {
+        Draw-Panel -G $G -W $W -H $H
+    }
+
+    if ($Theme.Border) {
+        $rad = Get-CornerRadius
+        $bp = New-RoundedPathEx -X 0.5 -Y 0.5 -W ($W - 1) -H ($H - 1) -RTL $rad -RTR $rad -RBR $rad -RBL $rad
+        $bpen = New-Object System.Drawing.Pen (C $Theme.Border), ([single]1)
+        $G.DrawPath($bpen, $bp)
+        $bpen.Dispose(); $bp.Dispose()
+    }
+}
+
+function Ensure-Surface {
+    param([int]$W, [int]$H)
+    if ($script:Surface -and $script:Surface.Width -eq $W -and $script:Surface.Height -eq $H) { return }
+    if ($script:SurfaceG) { $script:SurfaceG.Dispose(); $script:SurfaceG = $null }
+    if ($script:Surface)  { $script:Surface.Dispose();  $script:Surface  = $null }
+    $script:Surface  = New-Object System.Drawing.Bitmap $W, $H, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $script:SurfaceG = [System.Drawing.Graphics]::FromImage($script:Surface)
+}
+
+# 统一的重绘入口：分层模式下重画整帧再推给 DWM；否则退回 Invalidate 走 WM_PAINT
+function Refresh-UI {
+    if (-not $script:Layered) { $canvas.Invalidate(); return }
+    try {
+        $w = $script:MainForm.Width; $h = $script:MainForm.Height
+        if ($w -le 0 -or $h -le 0) { return }
+        Ensure-Surface -W $w -H $h
+        Draw-Scene -G $script:SurfaceG -W $w -H $h -AlphaEdge $true
+        $a = [byte][Math]::Round([Math]::Min(1.0, [Math]::Max(0.0, $script:Opacity)) * 255)
+        if (-not [NativeWin]::PushLayered($script:MainForm.Handle, $script:Surface, $a)) {
+            throw 'UpdateLayeredWindow 返回 false'
+        }
+    } catch {
+        Write-CoreLog ('分层绘制失败，退回 Region 硬裁剪: ' + $_.Exception.Message)
+        $script:Layered = $false
+        $script:MainForm.Opacity = $script:Opacity
+        Update-WindowRegion -W $script:MainForm.Width -H $script:MainForm.Height
+        $canvas.Invalidate()
+    }
 }
 
 function Apply-Mode {
@@ -1086,34 +1316,15 @@ function Apply-Mode {
 
     [void][NativeWin]::SetWindowPos($script:MainForm.Handle, [IntPtr]::Zero, $x, $y, $w, $h, 0x14)
     Update-WindowRegion -W $w -H $h
-    $canvas.Invalidate()
+    Refresh-UI
 }
 
 $canvas.add_Paint({
     param($s, $e)
+    # 分层模式下画面由 UpdateLayeredWindow 直接提供，WM_PAINT 不参与
+    if ($script:Layered) { return }
     try {
-    $g = $e.Graphics
-    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $g.Clear((C $Theme.Bg))
-
-    # 深色下方块与背景的色差已经足够，不画描边（曾经 1px #2E333F 会显成白边）；
-    # 浅色下白窗贴白墙看不见，必须补一条极淡的描边
-    if ($script:Mode -eq 'dock') {
-        Draw-Dock -G $g -W $s.Width -H $s.Height
-    } else {
-        Draw-Panel -G $g -W $s.Width -H $s.Height
-    }
-
-    if ($Theme.Border) {
-        $bw = [single]$s.Width; $bh = [single]$s.Height
-        $rad = if ($script:Mode -eq 'dock') { [single](DS 18) } else { [single](S 18) }
-        $bp = New-RoundedPathEx -X 0.5 -Y 0.5 -W ($bw - 1) -H ($bh - 1) -RTL $rad -RTR $rad -RBR $rad -RBL $rad
-        $bpen = New-Object System.Drawing.Pen (C $Theme.Border), ([single]1)
-        $g.DrawPath($bpen, $bp)
-        $bpen.Dispose(); $bp.Dispose()
-    }
+        Draw-Scene -G $e.Graphics -W $s.Width -H $s.Height -AlphaEdge $false
     } catch {
         Write-CoreLog ('绘制失败: ' + $_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber)
     }
@@ -1143,11 +1354,11 @@ $script:animTimer.add_Tick({
         # 1 秒到：停动效，先画一帧静止，然后同步拉最新数据
         $script:animTimer.Stop()
         $script:AnimActive = $false
-        try { $canvas.Refresh() } catch { }
+        try { Refresh-UI } catch { }
         Refresh-Data
         return
     }
-    try { $canvas.Invalidate() } catch { }
+    try { Refresh-UI } catch { }
 })
 
 function Start-DockAnim {
@@ -1328,7 +1539,7 @@ function Show-Panel {
 function Refresh-Data {
     try {
         $script:Data = Get-AllQuota -Cfg $script:Cfg
-        if ($script:Mode -eq 'panel') { Apply-Mode 'panel' } else { $canvas.Invalidate() }
+        if ($script:Mode -eq 'panel') { Apply-Mode 'panel' } else { Refresh-UI }
     } catch {
         Write-CoreLog ('手动刷新失败: ' + $_.Exception.Message)
     }
@@ -1353,8 +1564,8 @@ function Preview-Theme {
     # 配置页是模态的，主窗被禁用，单纯 Invalidate 可能迟迟不重绘（看起来像没换肤）。
     # 用 Refresh 强制同步重绘，用户在设置页里点一下就能立刻看到新配色。
     try {
+        Refresh-UI
         $script:MainForm.Refresh()
-        $canvas.Refresh()
     } catch {
         try { $canvas.Invalidate() } catch { }
     }
@@ -1550,20 +1761,28 @@ $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Text = $script:AppName
 $tray.Visible = $true
 try {
-    $bmp = New-Object System.Drawing.Bitmap 32, 32
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.Clear([System.Drawing.Color]::Transparent)
-    $disk = New-Object System.Drawing.SolidBrush (C $Theme.Cy)
-    $g.FillEllipse($disk, 1, 1, 29, 29)
-    $disk.Dispose()
-    $f2 = New-Object System.Drawing.Font 'Segoe UI', 15, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-    $sf2 = New-Object System.Drawing.StringFormat
-    $sf2.Alignment = 'Center'; $sf2.LineAlignment = 'Center'
-    $w2 = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-    $g.DrawString('T', $f2, $w2, (New-Object System.Drawing.RectangleF 0, 0, 32, 32), $sf2)
-    $g.Dispose()
-    $tray.Icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    if (Test-Path $script:AppIconPath) {
+        # 按系统小图标尺寸取对应的帧（100% DPI = 16×16，150% = 24×24）。
+        # 直接给 32×32 会让系统再缩一次，托盘里就糊了。
+        $si = [System.Windows.Forms.SystemInformation]::SmallIconSize
+        $tray.Icon = New-Object System.Drawing.Icon($script:AppIconPath, $si.Width, $si.Height)
+    } else {
+        # 兜底：没有 .ico 时现画一个（旧逻辑，保底能用）
+        $bmp = New-Object System.Drawing.Bitmap 32, 32
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $disk = New-Object System.Drawing.SolidBrush (C $Theme.Cy)
+        $g.FillEllipse($disk, 1, 1, 29, 29)
+        $disk.Dispose()
+        $f2 = New-Object System.Drawing.Font 'Segoe UI', 15, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+        $sf2 = New-Object System.Drawing.StringFormat
+        $sf2.Alignment = 'Center'; $sf2.LineAlignment = 'Center'
+        $w2 = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
+        $g.DrawString('T', $f2, $w2, (New-Object System.Drawing.RectangleF 0, 0, 32, 32), $sf2)
+        $g.Dispose()
+        $tray.Icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    }
 } catch { }
 
 $tray.ContextMenuStrip = New-PanelMenu
@@ -1582,7 +1801,7 @@ $timer.Interval = [Math]::Max(1, [int]$script:Cfg.refreshMinutes) * 60 * 1000
 $timer.add_Tick({
     try {
         $script:Data = Get-AllQuota -Cfg $script:Cfg
-        $canvas.Invalidate()
+        Refresh-UI
     } catch { Write-CoreLog ('刷新失败: ' + $_.Exception.Message) }
 })
 $timer.Start()
@@ -1640,6 +1859,9 @@ if ($gi.Resize) {
 } else {
     Update-WindowRegion -W $gi.W -H $gi.H
     if ($gi.Moved) { [void][NativeWin]::SetWindowPos($form.Handle, [IntPtr]::Zero, $gi.X, $gi.Y, 0, 0, 0x15) }
+    # 尺寸没变时不会走 Apply-Mode，但首帧必须自己推一次：
+    # 分层模式下 WM_PAINT 不参与绘制，不推就是一块全透明的空窗口
+    Refresh-UI
 }
 $dw = $gi.W; $dh = $gi.H
 Write-CoreLog ("初始窗口 " + $dw + "x" + $dh + " @ " + $gi.X + "," + $gi.Y + " 方向 " + $script:DockOrient + " 吸附 " + $script:SnapEdgeH + "/" + $script:SnapEdgeV)

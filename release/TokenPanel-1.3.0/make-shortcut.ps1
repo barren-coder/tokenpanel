@@ -13,6 +13,9 @@ $sc.Arguments = '//nologo "' + $vbs + '"'
 $sc.WorkingDirectory = $root
 $sc.WindowStyle = 7          # 7 = 最小化（wscript 本身无窗口，这里只是兜底）
 $sc.Description = 'TokenPanel - 悬浮窗额度/余额监控'
+# 图标：与窗口图标、托盘图标同一个 .ico（多尺寸，任务栏/开始菜单/桌面统一）
+$ico = Join-Path $root 'TokenPanel.ico'
+if (Test-Path $ico) { $sc.IconLocation = $ico + ',0' }
 $sc.Save()
 
 if (Test-Path $lnkPath) {
