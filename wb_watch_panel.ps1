@@ -1,4 +1,4 @@
-# wb_watch_panel.ps1 — 启动后每 2 秒探测一次：进程存活 / 窗口是否存在
+﻿# wb_watch_panel.ps1 — 启动后每 2 秒探测一次：进程存活 / 窗口是否存在
 $ErrorActionPreference = 'Continue'
 foreach ($n in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
     if ($null -ne [Environment]::GetEnvironmentVariable($n)) { Remove-Item ("Env:" + $n) -ErrorAction SilentlyContinue }

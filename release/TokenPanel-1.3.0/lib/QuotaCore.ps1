@@ -1,4 +1,4 @@
-# QuotaCore.ps1 — 数据层（多账户额度查询）
+﻿# QuotaCore.ps1 — 数据层（多账户额度查询）
 # 被 TokenPanel.ps1 dot-source 引入
 # 职责：配置读写 / 凭据加解密 / 各供应商请求与解析
 

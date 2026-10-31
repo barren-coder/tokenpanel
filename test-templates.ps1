@@ -1,4 +1,4 @@
-# test-templates.ps1 — 验证 6 个模板的预设、字段、解析器
+﻿# test-templates.ps1 — 验证 6 个模板的预设、字段、解析器
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $root 'lib\QuotaCore.ps1')

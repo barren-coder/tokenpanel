@@ -1,4 +1,4 @@
-# wb_start_only.ps1 — 只启动面板，不做任何点击
+﻿# wb_start_only.ps1 — 只启动面板，不做任何点击
 $ErrorActionPreference = 'Continue'
 foreach ($n in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
     if ($null -ne [Environment]::GetEnvironmentVariable($n)) { Remove-Item ("Env:" + $n) -ErrorAction SilentlyContinue }

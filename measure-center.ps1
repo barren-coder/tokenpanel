@@ -1,4 +1,4 @@
-# measure-center.ps1 — 用亮度加权质心精确标定数字的垂直偏移
+﻿# measure-center.ps1 — 用亮度加权质心精确标定数字的垂直偏移
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 

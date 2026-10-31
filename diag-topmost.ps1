@@ -1,4 +1,4 @@
-# diag-topmost.ps1 — 检查悬浮窗的 WS_EX_TOPMOST 样式是否真的生效
+﻿# diag-topmost.ps1 — 检查悬浮窗的 WS_EX_TOPMOST 样式是否真的生效
 # 不靠肉眼：直接读 GWL_EXSTYLE，并检查 z 序里是否排在其他普通窗口之上
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms

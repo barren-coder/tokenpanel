@@ -1,4 +1,4 @@
-# wb_shot_panel.ps1 — TokenPanel 悬浮窗截屏（模糊匹配 + 虚拟屏兜底）
+﻿# wb_shot_panel.ps1 — TokenPanel 悬浮窗截屏（模糊匹配 + 虚拟屏兜底）
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing

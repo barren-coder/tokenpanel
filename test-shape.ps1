@@ -1,4 +1,4 @@
-# test-shape.ps1 — 验证预设数组形态（PowerShell 解包坑回归测试）
+﻿# test-shape.ps1 — 验证预设数组形态（PowerShell 解包坑回归测试）
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $root 'lib\QuotaCore.ps1')
 

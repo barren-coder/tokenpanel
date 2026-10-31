@@ -1,4 +1,4 @@
-# wb_topmost_check.ps1 — 读 TokenPanel 窗口扩展样式，判断 WS_EX_TOPMOST 是否在位
+﻿# wb_topmost_check.ps1 — 读 TokenPanel 窗口扩展样式，判断 WS_EX_TOPMOST 是否在位
 $ErrorActionPreference = 'Continue'
 Add-Type -TypeDefinition @"
 using System;

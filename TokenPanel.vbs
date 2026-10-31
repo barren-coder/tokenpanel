@@ -1,16 +1,22 @@
 ' ============================================================
-'  TokenPanel.vbs — 无窗口启动器
+' TokenPanel.vbs - windowless launcher
 '
-'  双击本文件即可启动 TokenPanel，不会出现黑色控制台窗口。
+' Double-click to start TokenPanel with no black console window.
 '
-'  原理：WScript.Shell.Run 的第二个参数是「窗口模式」，
-'        0 = 完全隐藏。用它拉起 powershell.exe，
-'        控制台从创建起就是隐藏的，不会「先显示再隐藏」。
+' How it works: the 2nd argument of WScript.Shell.Run is the
+' window mode; 0 = fully hidden. Launching powershell.exe that
+' way means the console is hidden from the moment it is created,
+' instead of being shown first and hidden afterwards.
 '
-'  对比旧写法（start "" powershell.exe -WindowStyle Hidden）：
-'        start 会先给 powershell 开一个新控制台（可见），
-'        PowerShell 启动后才执行 -WindowStyle Hidden 把它藏起来，
-'        中间那一下就是用户看到的黑窗闪。
+' NOTE (encoding): keep this file pure ASCII. Windows Script Host
+' reads .vbs as ANSI (the active code page). A UTF-8 file without
+' BOM is mis-decoded on GBK/CP936 systems: the 3rd byte of a
+' Chinese character is taken as a GBK lead byte and swallows the
+' following ASCII quote, which produces
+'   "Unterminated string constant" / 800A0409
+' at compile time - the script never runs at all.
+' If localized text is really needed, save this file as
+' UTF-16 LE with BOM instead.
 ' ============================================================
 Option Explicit
 
@@ -23,13 +29,13 @@ baseDir = fso.GetParentFolderName(WScript.ScriptFullName)
 scriptPath = fso.BuildPath(baseDir, "TokenPanel.ps1")
 
 If Not fso.FileExists(scriptPath) Then
-    MsgBox "找不到 TokenPanel.ps1。" & vbCrLf & vbCrLf & _
-           "请确认 TokenPanel.vbs 与程序文件在同一个文件夹里。" & vbCrLf & _
-           "当前目录：" & baseDir, 16, "TokenPanel"
+    MsgBox "TokenPanel.ps1 was not found." & vbCrLf & vbCrLf & _
+           "TokenPanel.vbs must sit in the same folder as the program files." & vbCrLf & _
+           "Current folder: " & baseDir, 16, "TokenPanel"
     WScript.Quit 1
 End If
 
 cmdLine = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & scriptPath & """"
 
-' 参数 0 = 隐藏窗口；False = 不等待，立即返回
+' Window mode 0 = hidden; False = do not wait, return immediately
 sh.Run cmdLine, 0, False

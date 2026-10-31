@@ -1,4 +1,4 @@
-Add-Type -AssemblyName System.Security
+﻿Add-Type -AssemblyName System.Security
 . 'D:\AppData\TokenPanel\lib\QuotaCore.ps1'
 
 $cfgPath = $script:ConfigPath

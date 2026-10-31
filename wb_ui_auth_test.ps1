@@ -1,4 +1,4 @@
-# wb_ui_auth_test.ps1 — UI Automation 验证：取消授权后「授权登录」按钮恢复可点
+﻿# wb_ui_auth_test.ps1 — UI Automation 验证：取消授权后「授权登录」按钮恢复可点
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes

@@ -1,4 +1,4 @@
-# wb_open_cfg.ps1 — 打开配置页并停留（供 UI Automation 测试操作）
+﻿# wb_open_cfg.ps1 — 打开配置页并停留（供 UI Automation 测试操作）
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing

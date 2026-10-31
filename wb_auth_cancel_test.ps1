@@ -1,4 +1,4 @@
-# wb_auth_cancel_test.ps1 — 验证授权结果文件（ok / cancel）与关窗立即退出
+﻿# wb_auth_cancel_test.ps1 — 验证授权结果文件（ok / cancel）与关窗立即退出
 $ErrorActionPreference = 'Continue'
 foreach ($n in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
     if ($null -ne [Environment]::GetEnvironmentVariable($n)) { Remove-Item ("Env:" + $n) -ErrorAction SilentlyContinue }

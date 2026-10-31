@@ -1,4 +1,4 @@
-# make-shortcut.ps1 — 生成「TokenPanel」快捷方式（零闪启动）
+﻿# make-shortcut.ps1 — 生成「TokenPanel」快捷方式（零闪启动）
 # 目标指向 wscript.exe + TokenPanel.vbs：wscript 是 GUI 子系统程序，
 # 双击不会创建控制台，因此完全没有黑窗闪烁。
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path

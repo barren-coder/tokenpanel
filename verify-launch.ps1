@@ -1,4 +1,4 @@
-param([string]$Target = 'start-token-panel.cmd')
+﻿param([string]$Target = 'start-token-panel.cmd')
 # verify-launch.ps1 — 启动 TokenPanel 并检查是否出现「可见的控制台窗口」
 # 用法：powershell -File .\verify-launch.ps1                     （测 .cmd）
 #       powershell -File .\verify-launch.ps1 -Target "TokenPanel.lnk"  （测快捷方式）

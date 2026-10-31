@@ -1,4 +1,4 @@
-# ConfigWindow.ps1 — 图形化配置页（布局参考 CC Switch 的用量查询面板）
+﻿# ConfigWindow.ps1 — 图形化配置页（布局参考 CC Switch 的用量查询面板）
 # 被 TokenPanel.ps1 dot-source 引入，调用 Show-ConfigWindow -Cfg $cfg
 #
 # 两个页面（左侧底部按钮切换）：

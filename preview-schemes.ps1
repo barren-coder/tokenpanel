@@ -1,4 +1,4 @@
-# preview-schemes.ps1 — 三个方案 × 三档尺寸（含垂直居中修正、余额与用量同笔宽）
+﻿# preview-schemes.ps1 — 三个方案 × 三档尺寸（含垂直居中修正、余额与用量同笔宽）
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 

@@ -1,4 +1,4 @@
-# smoke-release.ps1 — 发布包冒烟测试
+﻿# smoke-release.ps1 — 发布包冒烟测试
 # 解压到全新临时目录，验证：能启动、窗口能出现、置顶生效、快捷方式生成正确
 # 用法：powershell -File .\smoke-release.ps1 [-Version 1.2.3]
 param([string]$Version = '1.2.3')

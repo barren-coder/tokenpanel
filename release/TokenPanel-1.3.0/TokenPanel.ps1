@@ -1,4 +1,4 @@
-# TokenPanel.ps1 — Token 消耗面板（WinForms 全自绘版）
+﻿# TokenPanel.ps1 — Token 消耗面板（WinForms 全自绘版）
 #
 # 为什么不用 WebView2：本机 32 位运行时虽已注册，但 CoreWebView2Environment
 # 的四种初始化方式（系统注册 / 显式路径 / 控件模式 / 消息泵）全部失败，

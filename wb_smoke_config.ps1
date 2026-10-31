@@ -1,4 +1,4 @@
-# wb_smoke_config.ps1 — WorkBuddy 接入的配置页冒烟验证（布局自检 + 截图）
+﻿# wb_smoke_config.ps1 — WorkBuddy 接入的配置页冒烟验证（布局自检 + 截图）
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing

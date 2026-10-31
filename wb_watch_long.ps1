@@ -1,4 +1,4 @@
-# wb_watch_long.ps1 — 启动后每 3 秒探测，共 90 秒；记录窗口从有到无的时刻
+﻿# wb_watch_long.ps1 — 启动后每 3 秒探测，共 90 秒；记录窗口从有到无的时刻
 $ErrorActionPreference = 'Continue'
 foreach ($n in @('HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy')) {
     if ($null -ne [Environment]::GetEnvironmentVariable($n)) { Remove-Item ("Env:" + $n) -ErrorAction SilentlyContinue }

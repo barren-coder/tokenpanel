@@ -1,4 +1,4 @@
-# diag-corner.ps1 — 抓取悬浮窗四角的真实屏幕像素并放大，判断圆角锯齿成因
+﻿# diag-corner.ps1 — 抓取悬浮窗四角的真实屏幕像素并放大，判断圆角锯齿成因
 # 关键点：
 #   1) DrawToBitmap 不经过窗口 Region 裁剪，截图看不出锯齿，必须 CopyFromScreen
 #   2) 本脚本必须自己做 DPI 感知，否则 CopyFromScreen 用虚拟化坐标、
