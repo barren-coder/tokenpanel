@@ -349,8 +349,9 @@ function Get-FlickerText {
 # ============================================================
 # 告警等级（按「使用量」判断，不是剩余量）
 #   5h 窗口：使用量 >= 80% → 黄，>= 90% → 红
-#   周窗口 ：使用量 >= 90% → 黄，>= 95% → 红
-#   账户圆圈取两个窗口里最严重的一级（周告警会联动到 5h 圆圈）
+#   周窗口 ：使用量 >= 95% → 黄，>= 100% → 红（满了才红）
+#   悬浮窗环色取两个窗口里最严重的一级 —— 周额度快没了就必须报警，
+#   哪怕 5 小时还很宽裕，也不能因为显示的是 5 小时就装没事。
 # 返回 0=正常 1=偏紧 2=告急
 # ============================================================
 function Get-TierLevel {
@@ -362,8 +363,10 @@ function Get-TierLevel {
 
     $isWeek = ($Tier.name -match '周|天|week|weekly|month|月')
     if ($isWeek) {
-        if ($used -ge 95) { return 2 }
-        if ($used -ge 90) { return 1 }
+        # 周额度：95% 起黄（提醒快没了），100%（满了）才红。
+        # 红线原来是 95%，会让「周 97%」直接变红，与用户要求（97% 黄）冲突，故上调到 100。
+        if ($used -ge 100) { return 2 }
+        if ($used -ge 95) { return 1 }
     } else {
         if ($used -ge 90) { return 2 }
         if ($used -ge 80) { return 1 }
@@ -729,6 +732,28 @@ function Get-PrimaryTier {
     return $null
 }
 
+# 折叠态圆环要显示的窗口：
+#   默认取第一个有效窗口（即 5 小时窗口，见 Get-PrimaryTier 注释）。
+#   新要求：当「周」窗口使用量达到 100%（已用满，remain <= 0）时，哪怕 5 小时
+#   消耗为 0，也改显示周窗口 —— 因为周额度已经满了，用户要看的是周这一档。
+#   周窗口按名称识别：7天 / 本周 / weekly 等（不含月，月是另一档，不在此规则内）。
+function Get-DisplayTier {
+    param($Account)
+    if (-not $Account -or -not $Account.ok) { return $null }
+    $primary = Get-PrimaryTier $Account
+    $weekly = $null
+    foreach ($t in @($Account.tiers)) {
+        if ($null -ne $t.remain -and ($t.name -match '周|天|week|weekly')) {
+            $weekly = $t
+            break
+        }
+    }
+    if ($weekly -and [int]$weekly.remain -le 0) {
+        return $weekly
+    }
+    return $primary
+}
+
 function Get-SortedAccounts {
     if (-not $script:Data -or -not $script:Data.accounts) { return @() }
     # 顺序完全由配置里的 providers 数组决定（配置页可以 ↑↓ 手动移动）。
@@ -784,11 +809,14 @@ function Draw-Dock {
             if ($script:AnimActive) { $txt = Get-FlickerText $txt }
             Draw-MoneyRing -G $G -Cx $cx -Cy $cy -Text $txt -ColorHex $mcol
         } else {
-            # 圆圈固定显示 **5 小时** 窗口（用户明确指定），不再取两个窗口的最大值。
-            # 颜色也跟着 5 小时的阈值走，保证「数字 = 34%」和「颜色」说的是同一件事
-            $pt = Get-PrimaryTier $a
+            # 数字默认显示 **5 小时** 窗口（用户明确指定），不再取两个窗口的最大值。
+            # 例外：当「周」窗口已用满（使用量 >= 100%，remain <= 0）时，改显示周窗口，
+            # 哪怕 5 小时消耗为 0 —— 因为周额度已经满了，用户要看的是周这一档。
+            # 颜色不跟「显示的那个窗口」走，而是取两个窗口里最严重的一级：
+            # 周额度快没了（>=95% 黄 / 满 100% 红）时，哪怕 5h 很宽裕也要报警。
+            $pt = Get-DisplayTier $a
             $used = if ($pt) { 100 - [int]$pt.remain } else { -1 }
-            $ringCol = if ($pt) { Get-LevelHex (Get-TierLevel $pt) } else { $Theme.Tx3 }
+            $ringCol = if ($pt) { Get-LevelHex (Get-AccountLevel $a) } else { $Theme.Tx3 }
             $txt = if ($used -ge 0) { [string]$used } else { '--' }
             if ($script:AnimActive) { $txt = Get-FlickerText $txt }
             Draw-Ring -G $G -Cx $cx -Cy $cy -Pct $used -ColorHex $ringCol -Text $txt
@@ -994,10 +1022,13 @@ if ($SelfTest) {
         @{ N = '5h 使用 89%'; R5 = 11; RW = 50; E = 1 },
         @{ N = '5h 使用 90%'; R5 = 10; RW = 50; E = 2 },
         @{ N = '周 使用 89%'; R5 = 80; RW = 11; E = 0 },
-        @{ N = '周 使用 90%'; R5 = 80; RW = 10; E = 1 },
-        @{ N = '周 使用 94%'; R5 = 80; RW = 6;  E = 1 },
-        @{ N = '周 使用 95%'; R5 = 80; RW = 5;  E = 2 },
-        @{ N = '周联动 5h 圆圈'; R5 = 95; RW = 3; E = 2 }
+        @{ N = '周 使用 90%'; R5 = 80; RW = 10; E = 0 },   # 90–94% 回到青
+        @{ N = '周 使用 94%'; R5 = 80; RW = 6;  E = 0 },   # 95% 以下仍是青
+        @{ N = '周 使用 95%'; R5 = 80; RW = 5;  E = 1 },   # 95% 起黄（周红线已上调到 100）
+        @{ N = '周 使用 97%'; R5 = 80; RW = 3;  E = 1 },   # 核心：周 97% → 黄，就算 5h 很宽裕
+        @{ N = '周 使用 100%'; R5 = 80; RW = 0; E = 2 },    # 满了才红
+        @{ N = '周告警 5h 很低'; R5 = 90; RW = 3; E = 1 },   # 5h 只用了 10%，仍按周 97% 报黄
+        @{ N = '5h 红压过周黄'; R5 = 95; RW = 3; E = 2 }     # 5h 95% 红，取更严重的一级
     )
     $pass = 0
     foreach ($c in $cases) {
