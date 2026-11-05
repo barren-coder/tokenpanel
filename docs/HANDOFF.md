@@ -3,6 +3,12 @@
 > 面向接手本项目的 Agent。读完这份文档，你应该能直接改代码、验证、交付，不需要重新摸索。
 > 最后更新：2026-10-30 13:55 ｜ 版本 v1.1.6 内测版 ｜ 文档作者：上一手 Agent
 
+> **2026-11-05 仓库整理说明**：本文中引用的以下内容已从仓库移除，仅存于 git 历史
+> （`git log --diff-filter=D --name-only` 可找回）：`wb_*.ps1`、`diag-*.ps1`、
+> `measure-center.ps1`、`preview-schemes.ps1`、`test-shape.ps1`、`test-templates.ps1`、
+> `smoke-release.ps1`、`verify-launch.ps1`、`tools/fix-encoding.ps1`、`archive/`、`release/`。
+> 文档和截图现在都在 `docs/`，发版改为走 GitHub Releases，不再提交打包产物。
+
 ---
 
 ## 0. 30 秒速览

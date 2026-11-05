@@ -24,9 +24,10 @@ cookie*.json
 *.pyc
 __pycache__/
 
-# 说明：
-# release/ 里的 zip 与目录是发布快照，故意纳入版本管理，
-# 这样每个 tag 都能取到当时的完整可分发产物。
+# 说明（2026-11-05 起）：
+# release/ 不再入库。打包产物走 GitHub Releases（tag 即版本），
+# 仓库里只留源码，避免出现「release 里的副本与源码不同步」的老问题。
+release/
 
 # 授权结果文件（运行时产物）
 .auth-result.json
