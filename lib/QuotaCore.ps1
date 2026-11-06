@@ -6,7 +6,7 @@
 # 应用身份（改名/改版本只需动这三行）
 # ============================================================
 $script:AppName    = 'TokenPanel'
-$script:AppVersion = '1.3.0'
+$script:AppVersion = '1.3.1'
 $script:AppChannel = '内测版'
 $script:AppId      = 'TokenPanel'
 # UserAgent 不能带空格，单独给一个
